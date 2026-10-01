@@ -1,6 +1,5 @@
 use crate::model::AppData;
 use std::fs;
-// BTreeMap used only in tests
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -205,7 +204,6 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::BTreeMap;
 
     fn tmpdir(tag: &str) -> PathBuf {

@@ -4,6 +4,35 @@ use crate::{App, AppMode};
 use chrono::{Duration, NaiveDate};
 use eframe::egui;
 
+const PRIMARY: egui::Color32 = egui::Color32::from_rgb(36, 86, 166);
+const RED: egui::Color32 = egui::Color32::from_rgb(208, 48, 48);
+const CARD_STROKE: egui::Color32 = egui::Color32::from_rgb(226, 230, 238);
+const MUTED: egui::Color32 = egui::Color32::from_rgb(122, 130, 142);
+
+fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let w = ui.available_width();
+    egui::Frame::new()
+        .fill(egui::Color32::WHITE)
+        .stroke(egui::Stroke::new(1.0, CARD_STROKE))
+        .corner_radius(egui::CornerRadius::same(12))
+        .inner_margin(egui::Margin::same(16))
+        .show(ui, |ui| {
+            ui.set_min_width((w - 34.0).max(100.0));
+            add(ui);
+        });
+}
+
+fn card_title(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).strong().size(22.0).color(PRIMARY));
+}
+
+fn subject_label(ui: &mut egui::Ui, subject: &str) {
+    ui.add_sized(
+        egui::vec2(84.0, 34.0),
+        egui::Label::new(egui::RichText::new(subject).strong().size(19.0)),
+    );
+}
+
 fn nav_dates(app: &App) -> Vec<NaiveDate> {
     let mut set: Vec<NaiveDate> = app
         .data
@@ -41,7 +70,7 @@ fn nav_panel(app: &mut App, ui: &mut egui::Ui) {
                 ui.label(
                     egui::RichText::new(format!("{} 当周", wk.format("%m月%d日")))
                         .strong()
-                        .color(egui::Color32::from_rgb(120, 128, 138)),
+                        .color(MUTED),
                 );
             }
             let tag = if d == today {
@@ -65,8 +94,8 @@ fn nav_panel(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn announcement_card(app: &mut App, ui: &mut egui::Ui) {
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.label(egui::RichText::new("公告").strong().heading());
+    card(ui, |ui| {
+        card_title(ui, "公告");
         let mut remove: Option<usize> = None;
         let key = schedule::fmt_date(app.view_date);
         let visible_count = app
@@ -89,14 +118,15 @@ fn announcement_card(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
                 let mut text = a.text.clone();
+                let w = ui.available_width() - 40.0;
                 if ui
-                    .add(egui::TextEdit::singleline(&mut text).desired_width(360.0))
+                    .add(egui::TextEdit::singleline(&mut text).desired_width(w.max(200.0)).font(egui::TextStyle::Body))
                     .changed()
                 {
                     a.text = text;
                     changed = true;
                 }
-                if ui.small_button("✕").clicked() {
+                if ui.button("✕").clicked() {
                     remove = Some(i);
                 }
             });
@@ -108,34 +138,36 @@ fn announcement_card(app: &mut App, ui: &mut egui::Ui) {
             app.data.announcements.remove(i);
             app.mark_dirty();
         }
-        if ui.button("＋ 新增公告").clicked() {
-            app.data.announcements.push(Announcement {
-                id: app.next_ann_id,
-                text: String::new(),
-                created_date: key.clone(),
-                done: false,
-                done_date: None,
-            });
-            app.next_ann_id += 1;
-            app.mark_dirty();
-        }
-        ui.label(
-            egui::RichText::new(format!("放映时显示 {} 条未完成公告", visible_count))
-                .small()
-                .color(egui::Color32::GRAY),
-        );
+        ui.horizontal(|ui| {
+            if ui.button("＋ 新增公告").clicked() {
+                app.data.announcements.push(Announcement {
+                    id: app.next_ann_id,
+                    text: String::new(),
+                    created_date: key.clone(),
+                    done: false,
+                    done_date: None,
+                });
+                app.next_ann_id += 1;
+                app.mark_dirty();
+            }
+            ui.label(
+                egui::RichText::new(format!("放映时显示 {} 条未完成公告；勾选完成即不再显示", visible_count))
+                    .small()
+                    .color(MUTED),
+            );
+        });
     });
 }
 
 fn homework_card(app: &mut App, ui: &mut egui::Ui) {
     let key = schedule::fmt_date(app.view_date);
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("作业").strong().heading());
+            card_title(ui, "作业");
             ui.label(
-                egui::RichText::new("（按当天课表生成学科行，空行不显示）")
+                egui::RichText::new("（按当天课表生成学科行，空行放映时不显示）")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(MUTED),
             );
         });
         let mut changed = false;
@@ -151,17 +183,19 @@ fn homework_card(app: &mut App, ui: &mut egui::Ui) {
             let mut text = text.clone();
             let mut submit_next = *submit_next;
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(&subject).strong());
+                subject_label(ui, &subject);
+                let w = ui.available_width() - 170.0;
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut text)
                         .desired_rows(1)
-                        .desired_width(420.0),
+                        .desired_width(w.max(200.0))
+                        .font(egui::TextStyle::Body),
                 );
                 if resp.changed() {
                     changed = true;
                 }
                 ui.checkbox(&mut submit_next, "明天交");
-                if ui.small_button("✕").clicked() {
+                if ui.button("✕").clicked() {
                     remove = Some(i);
                 }
             });
@@ -182,7 +216,7 @@ fn homework_card(app: &mut App, ui: &mut egui::Ui) {
             .filter(|s| !existing.iter().any(|e| e == s))
             .collect();
         if !addable.is_empty() {
-            egui::ComboBox::from_label("添加学科")
+            egui::ComboBox::from_label(egui::RichText::new("添加学科").size(17.0))
                 .selected_text("选择…")
                 .show_ui(ui, |ui| {
                     for s in addable {
@@ -207,14 +241,21 @@ fn speech_card(app: &mut App, ui: &mut egui::Ui) {
         .get(&key)
         .map(|d| d.speeches.iter().all(|s| s.students.trim().is_empty()) || d.speeches.is_empty())
         .unwrap_or(true);
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("演讲提醒").strong().heading());
+            card_title(ui, "演讲提醒");
             if all_empty {
                 ui.label(
                     egui::RichText::new("⚠ 演讲提醒未填写")
                         .strong()
-                        .color(egui::Color32::from_rgb(208, 48, 48)),
+                        .size(19.0)
+                        .color(RED),
+                );
+            } else {
+                ui.label(
+                    egui::RichText::new("（按明天课表生成学科行）")
+                        .small()
+                        .color(MUTED),
                 );
             }
         });
@@ -229,15 +270,15 @@ fn speech_card(app: &mut App, ui: &mut egui::Ui) {
         for (i, (subject, students)) in rows.iter().enumerate() {
             let mut students = students.clone();
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(subject).strong());
-                ui.label("学号：");
+                subject_label(ui, subject);
+                let w = ui.available_width() - 60.0;
                 if ui
-                    .add(egui::TextEdit::singleline(&mut students).desired_width(300.0))
+                    .add(egui::TextEdit::singleline(&mut students).desired_width(w.max(200.0)).hint_text("学号，如 22 32 或 4组").font(egui::TextStyle::Body))
                     .changed()
                 {
                     changed = true;
                 }
-                if ui.small_button("✕").clicked() {
+                if ui.button("✕").clicked() {
                     remove = Some(i);
                 }
             });
@@ -254,7 +295,7 @@ fn speech_card(app: &mut App, ui: &mut egui::Ui) {
             .filter(|s| !existing.iter().any(|e| e == s))
             .collect();
         if !addable.is_empty() {
-            egui::ComboBox::from_label("添加学科")
+            egui::ComboBox::from_label(egui::RichText::new("添加学科").size(17.0))
                 .selected_text("选择…")
                 .show_ui(ui, |ui| {
                     for s in addable {
@@ -273,12 +314,8 @@ fn speech_card(app: &mut App, ui: &mut egui::Ui) {
 
 fn schedule_card(app: &mut App, ui: &mut egui::Ui) {
     let key = schedule::fmt_date(app.view_date);
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.label(
-            egui::RichText::new("当天课表（调课红色显示）")
-                .strong()
-                .heading(),
-        );
+    card(ui, |ui| {
+        card_title(ui, "当天课表（调课红色显示，改回即恢复）");
         let mut changed = false;
         let weekday = schedule::weekday_index(app.view_date);
         let template: Vec<String> = (0..9)
@@ -309,7 +346,7 @@ fn schedule_card(app: &mut App, ui: &mut egui::Ui) {
                 let mut selected = cur.clone();
                 egui::ComboBox::from_id_salt(("slot", i))
                     .selected_text(if is_override {
-                        egui::RichText::new(&cur).color(egui::Color32::from_rgb(208, 48, 48))
+                        egui::RichText::new(&cur).color(RED)
                     } else {
                         egui::RichText::new(if cur.is_empty() { "（空）" } else { &cur })
                     })
@@ -352,7 +389,7 @@ fn schedule_card(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn toolbar(app: &mut App, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.button("← 前一天").clicked() {
             app.view_date -= Duration::days(1);
             app.sync_day_rows();
@@ -378,7 +415,8 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
                 tag
             ))
             .strong()
-            .size(18.0),
+            .size(22.0)
+            .color(PRIMARY),
         );
         ui.separator();
         let mode_label = if app.submit_only { "显示：要交" } else { "显示：全部" };
@@ -448,7 +486,7 @@ fn overview_window(app: &mut App, ctx: &egui::Context) {
                             .unwrap_or_default();
                         let text = match ov {
                             Some(s) => egui::RichText::new(if s.is_empty() { "—".to_string() } else { s })
-                                .color(egui::Color32::from_rgb(208, 48, 48)),
+                                .color(RED),
                             None => egui::RichText::new(if tpl.is_empty() { "—".to_string() } else { tpl }),
                         };
                         ui.label(text);
@@ -639,30 +677,36 @@ fn delete_window(app: &mut App, ctx: &egui::Context) {
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
-    egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+    egui::TopBottomPanel::top("toolbar")
+        .frame(egui::Frame::new().fill(egui::Color32::WHITE).inner_margin(egui::Margin::symmetric(12, 8)))
+        .show(ctx, |ui| {
         toolbar(app, ui);
         if app.font_missing {
             ui.label(
                 egui::RichText::new("未找到中文字体，界面可能无法正常显示中文")
-                    .color(egui::Color32::from_rgb(208, 48, 48)),
+                    .color(RED),
             );
         }
     });
     egui::SidePanel::left("nav")
         .resizable(false)
-        .default_width(200.0)
-        .width_range(180.0..=220.0)
+        .default_width(220.0)
+        .width_range(200.0..=240.0)
+        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(238, 241, 246)).inner_margin(egui::Margin::symmetric(12, 10)))
         .show(ctx, |ui| {
-            ui.heading("天数导航");
+            ui.label(egui::RichText::new("天数导航").strong().size(22.0).color(PRIMARY));
+            ui.add_space(4.0);
             nav_panel(app, ui);
         });
-    egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("statusbar")
+        .frame(egui::Frame::new().fill(egui::Color32::WHITE).inner_margin(egui::Margin::symmetric(12, 6)))
+        .show(ctx, |ui| {
         ui.horizontal(|ui| {
             if !app.status.is_empty() {
-                ui.label(egui::RichText::new(&app.status).color(egui::Color32::from_rgb(46, 90, 172)));
+                ui.label(egui::RichText::new(&app.status).color(PRIMARY));
             }
             if app.dirty {
-                ui.label(egui::RichText::new("● 未保存修改").small().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new("● 未保存修改").small().color(MUTED));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
@@ -670,18 +714,24 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         "F5 放映 | ←/→ 翻页 | Ctrl+T 要交/全部 | Ctrl+K 课表总览 | Ctrl+, 设置 | Ctrl+S 保存+出图 | Ctrl+D 新增日期",
                     )
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(MUTED),
                 );
             });
         });
     });
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default()
+        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(245, 246, 248)).inner_margin(egui::Margin::symmetric(14, 12)))
+        .show(ctx, |ui| {
         app.sync_day_rows();
         egui::ScrollArea::vertical().show(ui, |ui| {
             announcement_card(app, ui);
+            ui.add_space(10.0);
             homework_card(app, ui);
+            ui.add_space(10.0);
             speech_card(app, ui);
+            ui.add_space(10.0);
             schedule_card(app, ui);
+            ui.add_space(10.0);
         });
     });
     overview_window(app, ctx);

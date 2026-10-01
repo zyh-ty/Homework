@@ -21,7 +21,8 @@ pub const BADGE_BYTES: &[u8] = include_bytes!("../assets/badge.png");
 pub struct LoadedFonts {
     pub regular: Option<fontdue::Font>,
     pub bold: Option<fontdue::Font>,
-    pub regular_bytes: Option<Vec<u8>>,
+    pub regular_bytes: Option<(Vec<u8>, u32)>,
+    pub bold_bytes: Option<(Vec<u8>, u32)>,
     pub missing: bool,
 }
 
@@ -29,50 +30,43 @@ fn try_font(path: &std::path::Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok().filter(|b| b.len() > 100)
 }
 
-/// 能被 egui 直接加载的字体（排除 TTC 集合）。
-fn egui_compatible(bytes: &[u8]) -> bool {
-    if bytes.len() < 4 {
-        return false;
-    }
-    let magic = &bytes[0..4];
-    !(magic == b"ttcf")
-}
-
 pub fn load_fonts() -> LoadedFonts {
     let dir = std::path::Path::new(r"C:\Windows\Fonts");
-    let candidates = [
+    let regular_candidates: [(&str, u32); 4] = [
         ("msyh.ttc", 0),
-        ("msyhbd.ttc", 0),
         ("simhei.ttf", 0),
         ("simsun.ttc", 0),
+        ("Deng.ttf", 0),
     ];
-    let regular_bytes = candidates
+    let bold_candidates: [(&str, u32); 2] = [("msyhbd.ttc", 0), ("simhei.ttf", 0)];
+    let regular_bytes = regular_candidates
         .iter()
-        .filter(|(n, _)| *n != "msyhbd.ttc")
-        .find_map(|(n, _)| try_font(&dir.join(n)));
-    let bold_bytes = candidates
+        .find_map(|(n, i)| try_font(&dir.join(n)).map(|b| (b, *i)));
+    let bold_bytes = bold_candidates
         .iter()
-        .filter(|(n, _)| *n == "msyhbd.ttc")
-        .find_map(|(n, _)| try_font(&dir.join(n)))
+        .find_map(|(n, i)| try_font(&dir.join(n)).map(|b| (b, *i)))
         .or_else(|| regular_bytes.clone());
 
-    let mk = |b: &Option<Vec<u8>>| {
-        b.as_ref().and_then(|bytes| {
-            fontdue::Font::from_bytes(bytes.clone(), fontdue::FontSettings::default()).ok()
+    let mk = |b: &Option<(Vec<u8>, u32)>| {
+        b.as_ref().and_then(|(bytes, index)| {
+            fontdue::Font::from_bytes(
+                bytes.clone(),
+                fontdue::FontSettings {
+                    collection_index: *index,
+                    ..Default::default()
+                },
+            )
+            .ok()
         })
     };
     let regular = mk(&regular_bytes);
     let bold = mk(&bold_bytes).or_else(|| regular.clone());
-    let egui_regular = [&regular_bytes, &bold_bytes]
-        .into_iter()
-        .flatten()
-        .find(|b| egui_compatible(b))
-        .cloned();
     let missing = regular.is_none();
     LoadedFonts {
         regular,
         bold,
-        regular_bytes: egui_regular,
+        regular_bytes,
+        bold_bytes,
         missing,
     }
 }
@@ -158,28 +152,75 @@ impl App {
             regular: fonts.regular.clone(),
             bold: fonts.bold.clone(),
         };
-        let mut style = (*cc.egui_ctx.style()).clone();
-        if let Some(bytes) = &fonts.regular_bytes {
+        // 字体：TTC 通过 index 加载；注册 regular 与 bold 两个族
+        {
             let mut defs = egui::FontDefinitions::default();
-            defs.font_data
-                .insert("cn".to_owned(), std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())));
-            defs.families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "cn".to_owned());
+            if let Some((bytes, index)) = &fonts.regular_bytes {
+                defs.font_data.insert(
+                    "cn".to_owned(),
+                    std::sync::Arc::new(egui::FontData {
+                        font: bytes.clone().into(),
+                        index: *index,
+                        tweak: egui::FontTweak::default(),
+                    }),
+                );
+                defs.families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, "cn".to_owned());
+            }
+            if let Some((bytes, index)) = &fonts.bold_bytes {
+                defs.font_data.insert(
+                    "cn-bold".to_owned(),
+                    std::sync::Arc::new(egui::FontData {
+                        font: bytes.clone().into(),
+                        index: *index,
+                        tweak: egui::FontTweak::default(),
+                    }),
+                );
+                defs.families.insert(
+                    egui::FontFamily::Name(std::sync::Arc::from("bold")),
+                    vec!["cn-bold".to_owned(), "cn".to_owned()],
+                );
+            }
             cc.egui_ctx.set_fonts(defs);
         }
+        // 浅色主题 + 大字号
+        let mut style = (*cc.egui_ctx.style()).clone();
         style.text_styles = {
             use egui::TextStyle::*;
             [
-                (Heading, egui::FontId::proportional(22.0)),
-                (Body, egui::FontId::proportional(16.0)),
-                (Monospace, egui::FontId::monospace(14.0)),
-                (Button, egui::FontId::proportional(16.0)),
-                (Small, egui::FontId::proportional(13.0)),
+                (Heading, egui::FontId::proportional(26.0)),
+                (Body, egui::FontId::proportional(19.0)),
+                (Monospace, egui::FontId::monospace(17.0)),
+                (Button, egui::FontId::proportional(18.0)),
+                (Small, egui::FontId::proportional(15.0)),
             ]
             .into()
         };
+        style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+        style.spacing.button_padding = egui::vec2(14.0, 7.0);
+        style.spacing.indent = 22.0;
+        let mut v = egui::Visuals::light();
+        v.panel_fill = egui::Color32::from_rgb(245, 246, 248);
+        v.window_fill = egui::Color32::WHITE;
+        v.extreme_bg_color = egui::Color32::from_rgb(250, 251, 253);
+        v.faint_bg_color = egui::Color32::from_rgb(238, 241, 246);
+        v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 216, 226));
+        v.widgets.inactive.bg_fill = egui::Color32::WHITE;
+        v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(196, 204, 217));
+        v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(36, 86, 166));
+        v.selection.bg_fill = egui::Color32::from_rgb(36, 86, 166);
+        v.selection.stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+        v.hyperlink_color = egui::Color32::from_rgb(36, 86, 166);
+        let rounding = egui::CornerRadius::same(8);
+        v.widgets.noninteractive.corner_radius = rounding;
+        v.widgets.inactive.corner_radius = rounding;
+        v.widgets.hovered.corner_radius = rounding;
+        v.widgets.active.corner_radius = rounding;
+        v.widgets.open.corner_radius = rounding;
+        v.window_corner_radius = egui::CornerRadius::same(12);
+        style.visuals = v;
         cc.egui_ctx.set_style(style);
 
         let exe_dir = store::exe_dir();
@@ -367,16 +408,47 @@ fn run_selftest() -> i32 {
     let day = data.day(key);
     day.homework.push(model::HomeworkItem {
         subject: "语文".into(),
-        text: "背诵课文".into(),
+        text: "完成第十一课补充习题全部，背诵《三峡》第3-4段".into(),
         submit_next: true,
     });
-    day.speeches.push(model::SpeechEntry {
-        subject: "语文".into(),
-        students: "22 23".into(),
+    day.homework.push(model::HomeworkItem {
+        subject: "数学".into(),
+        text: "试卷一张（辅导课写，可提前完成）".into(),
+        submit_next: false,
     });
+    day.homework.push(model::HomeworkItem {
+        subject: "英语A".into(),
+        text: "家庭反馈本默写U3词单".into(),
+        submit_next: true,
+    });
+    day.homework.push(model::HomeworkItem {
+        subject: "英语B".into(),
+        text: "重写作文".into(),
+        submit_next: true,
+    });
+    day.homework.push(model::HomeworkItem {
+        subject: "物理".into(),
+        text: "1.4学评、南外作业本".into(),
+        submit_next: true,
+    });
+    day.homework.push(model::HomeworkItem {
+        subject: "历史".into(),
+        text: "自批伴你学".into(),
+        submit_next: false,
+    });
+    day.speeches.push(model::SpeechEntry { subject: "语文".into(), students: "12".into() });
+    day.speeches.push(model::SpeechEntry { subject: "英语A".into(), students: "5组".into() });
+    day.speeches.push(model::SpeechEntry { subject: "英语B".into(), students: "29 37".into() });
     data.announcements.push(model::Announcement {
         id: 1,
-        text: "明天带彩笔".into(),
+        text: "明天早读默写《答谢中书书》".into(),
+        created_date: key.into(),
+        done: false,
+        done_date: None,
+    });
+    data.announcements.push(model::Announcement {
+        id: 2,
+        text: "周四选修课开始，注意上课时间地点".into(),
         created_date: key.into(),
         done: false,
         done_date: None,
@@ -386,7 +458,7 @@ fn run_selftest() -> i32 {
         return 1;
     }
     let (mut loaded, recovered) = store.load();
-    if recovered || loaded.day(key).homework[0].text != "背诵课文" {
+    if recovered || !loaded.day(key).homework[0].text.contains("补充习题") {
         eprintln!("selftest reload mismatch");
         return 1;
     }

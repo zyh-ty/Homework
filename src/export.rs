@@ -39,10 +39,7 @@ fn draw_text(pixmap: &mut Pixmap, fonts: &ExportFonts, x: f32, y: f32, size: f32
         Some(f) => f,
         None => return,
     };
-    let baseline = match font.horizontal_line_metrics(size) {
-        Some(m) => y - m.ascent,
-        None => y - size * 0.8,
-    };
+    let baseline = y;
     let (pr, pg, pb, pa) = (color[0], color[1], color[2], color[3]);
     for c in text.chars() {
         let (metrics, bitmap) = font.rasterize(c, size);

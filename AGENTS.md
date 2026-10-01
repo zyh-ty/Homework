@@ -62,8 +62,9 @@ present.rs 和 export.rs 各自解释。新增视觉元素时只改 layout.rs + 
 
 ## 字体
 
-启动时依次尝试 `C:\Windows\Fonts\{msyh.ttc, msyhbd.ttc, simhei.ttf, simsun.ttc}`（TTC 取 index 0）。
-字节同时喂给 fontdue（排版测量）和 egui（FontDefinitions；TTC 集合头 `ttcf` 会被跳过，egui 只收纯 TTF）。
+启动时依次尝试 `C:\Windows\Fonts\{msyh.ttc, simhei.ttf, simsun.ttc, Deng.ttf}`（粗体：`msyhbd.ttc` → `simhei.ttf`）。
+TTC 集合通过 `index` 字段加载（egui `FontData{index}` 与 fontdue `collection_index` 均支持），egui 侧注册
+regular 到 Proportional 族、粗体到 `FontFamily::Name("bold")` 族；fontdue 两份实例供排版测量与 PNG 导出。
 全部失败 → egui 默认字体 + 界面顶部红色提示。不内嵌字体文件。
 
 ## 构建 / 测试
@@ -86,7 +87,9 @@ cp target/release/homework-client.exe 每日作业.exe
 
 ## 已知取舍
 
-- egui 无法直接加载 TTC（msyh.ttc/simsun.ttc），egui 侧实际会用列表中第一个纯 TTF（如 simhei.ttf）；
-  排版测量（fontdue）始终用优先级最高的 TTC index 0，两套字体不完全同源但同为黑体，度量接近。
+- DrawCmd::Text 的 `y` 一律是**基线**；垂直居中用 `LayoutFont::vcenter_baseline`（按字形实际包围盒计算，
+  不要用 line metrics——msyh 的 hhea 值会导致明显偏移）。
+- present.rs 放映用 egui 渲染（bold 走 "bold" 字体族），export.rs 用 fontdue 逐 glyph 混合，两者同源于 layout.rs。
 - 天数导航只列 days 中已有天 + 今天 + 明天；"已删除"的天从导航消失（无法追踪）。
 - 课间序号在课表卡片中与学科同行显示（`"1 语文"` 分两列布局）。
+- debug 构建下 egui 会对新 widget 显示 "First use of widget ID" 红色提示，release 无此现象。

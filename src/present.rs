@@ -28,7 +28,12 @@ fn draw_cmds(app: &mut App, painter: &egui::Painter, cmds: &[DrawCmd]) {
                 );
             }
             DrawCmd::Text { x, y, size, color, align, bold, ref text } => {
-                let font_id = egui::FontId::proportional(size * scale);
+                let family = if bold {
+                    egui::FontFamily::Name(std::sync::Arc::from("bold"))
+                } else {
+                    egui::FontFamily::Proportional
+                };
+                let font_id = egui::FontId::new(size * scale, family);
                 let galley = painter.layout_no_wrap(
                     text.clone(),
                     font_id,
@@ -39,8 +44,7 @@ fn draw_cmds(app: &mut App, painter: &egui::Painter, cmds: &[DrawCmd]) {
                     Align::Left => x,
                     Align::Center => x - w / (2.0 * scale),
                 };
-                painter.galley(map(px, y - size * 0.8), galley, to_color(color));
-                let _ = bold;
+                painter.galley(map(px, y - size * 0.82), galley, to_color(color));
             }
             DrawCmd::Image { x, y, w, h } => {
                 if let Some(tex) = app.badge_texture.clone() {

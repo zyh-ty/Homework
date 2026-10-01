@@ -101,6 +101,10 @@ npm run tauri dev          # 开发模式
 
 - DrawCmd::text 的 `y` 是**行垂直中心**，Canvas 用 `textBaseline="middle"` 绘制，不做基线换算。
 - 文字换行按字符贪心切分（CJK 友好），测量用屏幕同一 Canvas 引擎，导出严格 WYSIWYG。
-- 编辑卡片共享一份 `draft`（draft.ts），300ms 防抖整体 set_day；外部回显不重置草稿防止输入被打断。
+- 编辑卡片共享一份 `draft`（draft.ts），300ms 防抖整体 set_day；防抖快照按编辑时的日期保存，切天先 flush。
 - 天数导航列出 days 中已有天 + 今天 + 明天；被删除的天从导航消失。
-- 单 exe 指不打包安装器；运行时需系统 WebView2。
+- 单 exe 指不打包安装器；运行时需系统 WebView2。窗口 `additionalBrowserArgs` 强制 `direct://` 绕过系统代理，
+  防止教室机代理把 `http://tauri.localhost` 拦成「无法访问」。
+- **不要直接运行 `cargo build` 出的 debug exe**：dev profile 下页面走 devUrl（http://localhost:1420），
+  没有 vite dev server 时 WebView2 会显示「无法访问」；开发一律 `npm run tauri dev`，交付用 `npm run tauri build` 的 release exe（windows subsystem，无控制台窗口）。
+- release 用 thin LTO + codegen-units=4（fat LTO 单编译单元在本机要 50 分钟以上，UI 应用无感收益）。

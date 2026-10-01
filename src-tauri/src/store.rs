@@ -163,6 +163,7 @@ pub fn migrate_data_dir(current: &Path, new_dir: &Path) -> Result<PathBuf, Strin
     Ok(new_dir.to_path_buf())
 }
 
+#[cfg(test)]
 pub fn reset_ini() {
     let _ = fs::remove_file(ini_path());
 }

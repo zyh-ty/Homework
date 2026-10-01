@@ -1,6 +1,7 @@
 use crate::model::HomeworkItem;
 use crate::schedule::{day_schedule, has_override, weekday_cn};
 use crate::model::AppData;
+use chrono::Datelike;
 
 pub const CANVAS_W: f32 = 1920.0;
 pub const CANVAS_H: f32 = 1080.0;
@@ -17,7 +18,6 @@ pub enum DrawCmd {
 pub enum Align {
     Left,
     Center,
-    Right,
 }
 
 pub const BG: [u8; 4] = [245, 246, 248, 255];
@@ -34,41 +34,51 @@ pub const MUTED: [u8; 4] = [120, 128, 138, 255];
 pub struct HwLine {
     pub number: usize,
     pub lines: Vec<String>,
-    pub submit_next: bool,
 }
 
-/// 把作业条目按编号合并（英语A/B 合占一个编号）。
-pub fn merge_homework(items: &[HomeworkItem], filter: Option<&dyn Fn(&HomeworkItem) -> bool>) -> Vec<HwLine> {
+/// 把作业条目按编号合并（英语A/B 合占一个编号）。marker=true 时给"明天交"条目加标记。
+pub fn merge_homework(items: &[HomeworkItem], filter: Option<&dyn Fn(&HomeworkItem) -> bool>, marker: bool) -> Vec<HwLine> {
     let visible: Vec<&HomeworkItem> = items
         .iter()
         .filter(|h| !h.text.trim().is_empty())
         .filter(|h| filter.map(|f| f(h)).unwrap_or(true))
         .collect();
     let mut out: Vec<HwLine> = Vec::new();
+    let mut consumed: Vec<String> = Vec::new();
+    let mark = |t: &str, m: bool| -> String {
+        if marker && m {
+            format!("{}（明天交）", t)
+        } else {
+            t.to_string()
+        }
+    };
     let mut i = 0;
     let mut n = 1;
     while i < visible.len() {
         let h = visible[i];
         let is_ab = h.subject == "英语A" || h.subject == "英语B";
         if is_ab {
+            if consumed.iter().any(|s| s == &h.subject) {
+                i += 1;
+                continue;
+            }
             let other_sub = if h.subject == "英语A" { "英语B" } else { "英语A" };
             let other = visible.iter().find(|x| x.subject == other_sub);
-            let mut lines = vec![format!("{}：{}", h.subject, h.text.trim())];
-            if let Some(o) = other {
-                lines.push(format!("{}：{}", o.subject, o.text.trim()));
+            consumed.push(h.subject.clone());
+            if other.is_some() {
+                consumed.push(other_sub.to_string());
             }
-            out.push(HwLine {
-                number: n,
-                lines,
-                submit_next: h.submit_next,
-            });
+            let mut lines = vec![mark(&format!("{}：{}", h.subject, h.text.trim()), h.submit_next)];
+            if let Some(o) = other {
+                lines.push(mark(&format!("{}：{}", o.subject, o.text.trim()), o.submit_next));
+            }
+            out.push(HwLine { number: n, lines });
             n += 1;
             i += 1;
         } else {
             out.push(HwLine {
                 number: n,
-                lines: vec![format!("{}：{}", h.subject, h.text.trim())],
-                submit_next: h.submit_next,
+                lines: vec![mark(&format!("{}：{}", h.subject, h.text.trim()), h.submit_next)],
             });
             n += 1;
             i += 1;
@@ -99,17 +109,6 @@ pub struct LayoutFont {
 }
 
 impl LayoutFont {
-    fn metrics_for(&self, size: f32, bold: bool) -> (f32, f32) {
-        let font = if bold { &self.bold } else { &self.regular };
-        match font {
-            Some(f) => {
-                let m = f.horizontal_line_metrics(size).unwrap();
-                (m.ascent, m.descent)
-            }
-            None => (size * 0.88, -size * 0.24),
-        }
-    }
-
     fn advance(&self, text: &str, size: f32, bold: bool) -> f32 {
         let font = if bold { &self.bold } else { &self.regular };
         match font {
@@ -286,10 +285,10 @@ pub fn layout_day(font: &LayoutFont, view: &DayView) -> Vec<DrawCmd> {
     cmds.push(text_cmd(64.0, body_y + 42.0, 34.0, PRIMARY, Align::Left, true, hw_title.into()));
 
     let hw_lines: Vec<HwLine> = if let Some(items) = view.submit_only {
-        merge_homework(items, None)
+        merge_homework(items, None, false)
     } else {
         match data.days.get(view.date) {
-            Some(day) => merge_homework(&day.homework, None),
+            Some(day) => merge_homework(&day.homework, None, true),
             None => Vec::new(),
         }
     };
@@ -369,7 +368,7 @@ mod tests {
             item("英语B", "阅读"),
             item("数学", "练习册"),
         ];
-        let lines = merge_homework(&items, None);
+        let lines = merge_homework(&items, None, false);
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].number, 1);
         assert_eq!(lines[1].number, 2);
@@ -382,7 +381,7 @@ mod tests {
     #[test]
     fn english_ab_single_occupies_one_line() {
         let items = vec![item("英语A", "Quiz")];
-        let lines = merge_homework(&items, None);
+        let lines = merge_homework(&items, None, false);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].lines.len(), 1);
     }
@@ -390,7 +389,7 @@ mod tests {
     #[test]
     fn empty_items_hidden() {
         let items = vec![item("语文", ""), item("数学", "  ")];
-        assert!(merge_homework(&items, None).is_empty());
+        assert!(merge_homework(&items, None, false).is_empty());
     }
 
     #[test]

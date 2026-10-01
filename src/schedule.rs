@@ -1,5 +1,5 @@
 use crate::model::{AppData, Day, SpeechEntry, HomeworkItem, PERIODS, SUBJECTS};
-use chrono::{Datelike, NaiveDate, Weekday};
+use chrono::{Datelike, NaiveDate};
 
 pub fn parse_date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
@@ -135,14 +135,6 @@ pub fn prev_school_day(data: &AppData, today: NaiveDate) -> NaiveDate {
         .filter(|d| *d < today)
         .max()
         .unwrap_or(today)
-}
-
-pub fn is_school_day(data: &AppData, d: NaiveDate) -> bool {
-    if d.weekday() == Weekday::Sat || d.weekday() == Weekday::Sun {
-        data.days.contains_key(&fmt_date(d))
-    } else {
-        true
-    }
 }
 
 #[cfg(test)]

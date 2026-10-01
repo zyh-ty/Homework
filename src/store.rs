@@ -63,7 +63,7 @@ impl Store {
             Err(_) => {
                 let mut recovered = false;
                 let mut data = AppData::new();
-                if let Ok(mut entries) = fs::read_dir(self.backup_dir()) {
+                if let Ok(entries) = fs::read_dir(self.backup_dir()) {
                     let mut paths: Vec<PathBuf> = entries
                         .flatten()
                         .map(|e| e.path())
@@ -204,7 +204,7 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use super::*;
 
     fn tmpdir(tag: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("hw_store_test_{}_{}", tag, std::process::id()));
@@ -242,6 +242,7 @@ mod tests {
         let s = Store { dir: dir.clone() };
         let data = make_data();
         s.save(&data).unwrap();
+        s.save(&data).unwrap();
         fs::write(s.data_path(), "{broken json").unwrap();
         let (loaded, recovered) = s.load();
         assert!(recovered);
@@ -253,6 +254,7 @@ mod tests {
     fn recover_from_backup_when_missing() {
         let dir = tmpdir("missing");
         let s = Store { dir: dir.clone() };
+        s.save(&make_data()).unwrap();
         s.save(&make_data()).unwrap();
         fs::remove_file(s.data_path()).unwrap();
         let (loaded, recovered) = s.load();
@@ -267,6 +269,7 @@ mod tests {
         let s = Store { dir: dir.clone() };
         let mut data = make_data();
         s.save(&data).unwrap();
+        fs::create_dir_all(s.backup_dir()).unwrap();
         for i in 0..40 {
             data.announcements[0].id = i;
             // 模拟不同时间戳：直接造备份文件
@@ -290,7 +293,8 @@ mod tests {
         fs::create_dir_all(&exe).unwrap();
         let s = Store::open(&exe);
         let mut data = make_data();
-        data.days.insert("2026-10-01".into(), Default::default());
+        data.days
+            .insert("2026-10-01".into(), crate::model::Day::new());
         s.save(&data).unwrap();
         let new_dir = tmpdir("mig_new");
         let ns = migrate_data_dir(&exe, &new_dir).unwrap();

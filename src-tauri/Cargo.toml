@@ -1,0 +1,21 @@
+[package]
+name = "homework-client"
+version = "1.0.0"
+edition = "2021"
+description = "每日作业客户端：班级作业/公告/演讲提醒的编辑与放映工具"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"

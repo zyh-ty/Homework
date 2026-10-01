@@ -179,9 +179,9 @@ pub fn layout_day(font: &LayoutFont, view: &DayView) -> Vec<DrawCmd> {
     let header_h = 120.0;
     let pill_w = 30.0 + font.advance(&date_cn, 46.0, true);
     cmds.push(DrawCmd::FillRoundRect { x: 40.0, y: 30.0, w: pill_w, h: 64.0, r: 32.0, color: ORANGE });
-    cmds.push(text_cmd(40.0 + pill_w / 2.0, 62.0, 46.0, CARD, Align::Center, true, date_cn.clone()));
+    cmds.push(text_cmd(40.0 + pill_w / 2.0, 78.0, 46.0, CARD, Align::Center, true, date_cn.clone()));
     if !view.title_suffix.is_empty() {
-        cmds.push(text_cmd(40.0 + pill_w + 24.0, 62.0, 34.0, PRIMARY, Align::Left, true, view.title_suffix.clone()));
+        cmds.push(text_cmd(40.0 + pill_w + 24.0, 78.0, 34.0, PRIMARY, Align::Left, true, view.title_suffix.clone()));
     }
     if view.show_badge {
         cmds.push(DrawCmd::Image { x: CANVAS_W - 40.0 - 72.0, y: 20.0, w: 72.0, h: 72.0 });

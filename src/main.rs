@@ -418,6 +418,9 @@ fn run_selftest() -> i32 {
         return 1;
     }
     println!("selftest ok: {}", png.display());
+    if let Ok(out) = std::env::var("SELFTEST_OUT") {
+        std::fs::copy(&png, out).ok();
+    }
     let _ = std::fs::remove_dir_all(&dir);
     0
 }

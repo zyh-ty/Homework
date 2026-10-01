@@ -1,5 +1,6 @@
 node_modules/
 dist/
+target/
 每日作业数据/
 家庭作业_*.png
 每日作业配置.ini

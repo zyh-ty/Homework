@@ -3,24 +3,34 @@ import { store, view, cmd } from "./api";
 import { emptyDay, type Day } from "./types";
 
 export const draft = ref<Day>(emptyDay());
+
+let pending: { date: string; day: Day } | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-function load() {
-  const d = store.data?.days[view.date];
-  draft.value = d ? structuredClone(d) : emptyDay();
+function flush() {
+  if (timer) clearTimeout(timer);
+  timer = undefined;
+  if (pending) {
+    const p = pending;
+    pending = null;
+    void cmd.setDay(p.date, p.day);
+  }
 }
 
-watch(() => view.date, load, { immediate: true });
-
-export function reloadDraft() {
-  load();
-}
+watch(
+  () => view.date,
+  () => {
+    flush();
+    const d = store.data?.days[view.date];
+    draft.value = d ? structuredClone(d) : emptyDay();
+  },
+  { immediate: true }
+);
 
 export function saveDraft() {
+  pending = { date: view.date, day: structuredClone(draft.value) };
   clearTimeout(timer);
-  timer = setTimeout(() => {
-    void cmd.setDay(view.date, structuredClone(draft.value));
-  }, 300);
+  timer = setTimeout(flush, 300);
 }
 
 export const ALL_SUBJECTS = [

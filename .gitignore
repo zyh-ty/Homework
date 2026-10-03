@@ -5,3 +5,7 @@ target/
 家庭作业_*.png
 每日作业配置.ini
 每日作业.exe
+macos/.build/
+macos/build/
+HomeworkApp/.build/
+.DS_Store

@@ -58,11 +58,12 @@ const mode = computed({
       </nav>
       <Segmented v-model="mode" :options="modeOptions" />
       <div class="actions">
-        <button title="Ctrl+T" @click="emit('today')">今天</button>
-        <button class="primary" title="F5" @click="emit('present')">放映</button>
-        <button title="Ctrl+D：生成今天的家庭作业图片" @click="generateTodayImage(true)">出图</button>
         <button title="Ctrl+K" @click="openPage('week')">课表总览</button>
         <button title="Ctrl+," @click="openPage('settings')">设置</button>
+        <span class="divider" />
+        <button title="Ctrl+T" @click="emit('today')">今天</button>
+        <button title="Ctrl+D：生成今天的家庭作业图片" @click="generateTodayImage(true)">出图</button>
+        <button class="primary present" title="F5" @click="emit('present')">▶ 放映</button>
       </div>
     </header>
     <main class="cards">
@@ -123,6 +124,15 @@ const mode = computed({
   display: flex;
   gap: 8px;
   white-space: nowrap;
+}
+.actions .divider {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+.actions .present {
+  font-weight: 600;
 }
 .cards {
   flex: 1;

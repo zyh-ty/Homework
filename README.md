@@ -4,6 +4,24 @@
 
 替代原来「每周复制模版 PPT、奇偶页手动切换」的流程：**每天只有一页**，日期自动填，课表自动带，公告自动跨天管理。
 
+## 分支
+
+| 分支 | 内容 |
+| --- | --- |
+| `master` | 完整仓库：Windows 版（Tauri + Vue 3）+ macOS 原生版 + 共享契约 |
+| `features/Mac` | **只有 macOS 原生的部分**：`macos/`、`fixtures/`、`LICENSE`、指路牌 README |
+
+`features/Mac` 是从本分支导出的镜像，由 `scripts/export-mac-branch.sh` 维护：
+只把 `macos/`、`fixtures/`、`LICENSE` 刷新过去，分支自己的 README/.gitignore 与删除记录保持不变，
+所以每次同步都是快进推送（不需要 force）。
+
+```bash
+./scripts/export-mac-branch.sh          # 从 main 同步并推送
+DRY=1 ./scripts/export-mac-branch.sh    # 只看看会改什么
+```
+
+改动 macOS 版请照常在 `master`（或 `main`）上提交，再跑一次上面的脚本。
+
 ## macOS 原生版（SwiftUI）
 
 同一套数据与行为规则的 macOS 原生重写，源码在 `macos/`：

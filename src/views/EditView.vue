@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { store, view, vm, ui, refreshVm } from "../api";
+import { store, view, vm, refreshVm, openPage } from "../api";
 import { generateTodayImage } from "../image";
 import { parseDate } from "../utils";
 import AnnouncementCard from "../components/AnnouncementCard.vue";
 import HomeworkCard from "../components/HomeworkCard.vue";
 import SpeechCard from "../components/SpeechCard.vue";
 import ScheduleCard from "../components/ScheduleCard.vue";
-import SettingsDialog from "../components/SettingsDialog.vue";
-import WeekDialog from "../components/WeekDialog.vue";
-import AddDayDialog from "../components/AddDayDialog.vue";
-import DeleteDayDialog from "../components/DeleteDayDialog.vue";
+import Segmented from "../components/ui/Segmented.vue";
 
 defineProps<{ dayList: string[] }>();
 const emit = defineEmits<{ present: []; nav: [delta: number]; today: [] }>();
@@ -27,17 +24,21 @@ function pickDay(d: string) {
   void refreshVm();
 }
 
-const modeLabel = computed(() => (view.submitOnly ? "仅要交" : "全部"));
+const modeOptions = [
+  { value: "all", label: "全部" },
+  { value: "submit", label: "仅要交" },
+];
 
-function toggleMode() {
-  if (view.submitOnly) {
-    view.date = vm.value?.homework_date ?? view.date;
-    view.submitOnly = false;
-  } else {
-    view.submitOnly = true;
-  }
-  void refreshVm();
-}
+const mode = computed({
+  get: () => (view.submitOnly ? "submit" : "all"),
+  set: (v: string) => {
+    const wantSubmit = v === "submit";
+    if (wantSubmit === view.submitOnly) return;
+    // 模式只是显示过滤：页面日不变，避免切换时把正在编辑的草稿切走
+    view.submitOnly = wantSubmit;
+    void refreshVm();
+  },
+});
 </script>
 
 <template>
@@ -55,29 +56,23 @@ function toggleMode() {
           {{ chipLabel(d) }}
         </button>
       </nav>
+      <Segmented v-model="mode" :options="modeOptions" />
       <div class="actions">
-        <button title="切换放映显示全部/仅要交" @click="toggleMode">{{ modeLabel }}</button>
         <button title="Ctrl+T" @click="emit('today')">今天</button>
         <button class="primary" title="F5" @click="emit('present')">放映</button>
         <button title="Ctrl+D：生成今天的家庭作业图片" @click="generateTodayImage(true)">出图</button>
-        <button title="Ctrl+K" @click="ui.weekOpen = true">课表总览</button>
-        <button @click="ui.addDayOpen = true">新增天数</button>
-        <button @click="ui.deleteDayOpen = true">删除天数</button>
-        <button title="Ctrl+," @click="ui.settingsOpen = true">设置</button>
+        <button title="Ctrl+K" @click="openPage('week')">课表总览</button>
+        <button title="Ctrl+," @click="openPage('settings')">设置</button>
       </div>
     </header>
     <main class="cards">
-      <AnnouncementCard class="span2" />
+      <AnnouncementCard class="span-all" />
       <HomeworkCard />
       <div class="rightcol">
         <SpeechCard />
         <ScheduleCard />
       </div>
     </main>
-    <SettingsDialog v-if="ui.settingsOpen" />
-    <WeekDialog v-if="ui.weekOpen" />
-    <AddDayDialog v-if="ui.addDayOpen" />
-    <DeleteDayDialog v-if="ui.deleteDayOpen" />
   </div>
 </template>
 
@@ -91,7 +86,7 @@ function toggleMode() {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 8px 16px;
   background: #fff;
   border-bottom: 1px solid var(--border);
 }
@@ -131,19 +126,23 @@ function toggleMode() {
 }
 .cards {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 14px;
-  padding: 14px 16px;
-  align-content: start;
+  grid-template-columns: 1.6fr 1fr;
+  /* 第一行按公告卡内容自适应，第二行吃掉剩余高度：卡片内部滚动，页面永不滚动 */
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
 }
-.span2 {
+.span-all {
   grid-column: 1 / -1;
 }
+/* 演讲提醒与课表上下排布，各自内部两列 */
 .rightcol {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  min-height: 0;
 }
 </style>

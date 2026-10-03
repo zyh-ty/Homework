@@ -47,9 +47,7 @@ impl Default for Day {
 pub struct Announcement {
     pub id: u64,
     pub text: String,
-    pub created_date: String,
     pub done: bool,
-    pub done_date: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -59,7 +57,6 @@ pub struct Settings {
     pub image_interval_secs: u64,
     pub morning_cutoff: String,
     pub show_badge: bool,
-    pub last_seen_date: Option<String>,
 }
 
 impl Default for Settings {
@@ -69,7 +66,6 @@ impl Default for Settings {
             image_interval_secs: 60,
             morning_cutoff: "08:00".into(),
             show_badge: true,
-            last_seen_date: None,
         }
     }
 }

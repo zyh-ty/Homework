@@ -1,4 +1,4 @@
-import { ref, watch } from "vue";
+import { ref, toRaw, watch } from "vue";
 import { store, view, cmd } from "./api";
 import { emptyDay, type Day } from "./types";
 
@@ -22,13 +22,13 @@ watch(
   () => {
     flush();
     const d = store.data?.days[view.date];
-    draft.value = d ? structuredClone(d) : emptyDay();
+    draft.value = d ? structuredClone(toRaw(d)) : emptyDay();
   },
   { immediate: true }
 );
 
 export function saveDraft() {
-  pending = { date: view.date, day: structuredClone(draft.value) };
+  pending = { date: view.date, day: structuredClone(toRaw(draft.value)) };
   clearTimeout(timer);
   timer = setTimeout(flush, 300);
 }

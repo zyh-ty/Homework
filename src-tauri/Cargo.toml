@@ -1,6 +1,6 @@
 [package]
 name = "homework-client"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "每日作业客户端：班级作业/公告/演讲提醒的编辑与放映工具"
 
@@ -19,3 +19,4 @@ opt-level = 3
 lto = "thin"
 codegen-units = 4
 strip = "symbols"
+panic = "abort"

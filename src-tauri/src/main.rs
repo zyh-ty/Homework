@@ -65,7 +65,10 @@ fn mark_changed(app: &AppHandle, shared: &Shared) {
 
 #[derive(Serialize, Clone)]
 struct ViewModel {
+    /// 页面日 = 作业所属日（编辑页正在编辑的那天）
     date: String,
+    /// 画面上显示的日期：全部 = 页面日；仅要交 = 页面日的下一个上学日
+    display_date: String,
     weekday: String,
     submit_only: bool,
     homework_date: String,
@@ -82,31 +85,30 @@ struct ViewModel {
 fn get_view_model(state: State<Arc<Shared>>, date: String, submit_only: bool) -> ViewModel {
     let inner = state.inner.lock().unwrap();
     let data = &inner.data;
-    let homework_date = if submit_only {
-        schedule::prev_school_day(data, &date)
+    // 页面日固定是作业所属的那一天；「仅要交」只改变画面上的日期和作业过滤，
+    // 因此切换全部/仅要交不会换天，编辑中的草稿不会被切走。
+    let display_date = if submit_only {
+        schedule::next_school_day(data, &date)
     } else {
         date.clone()
     };
     let day = data.days.get(&date);
-    let slots = schedule::effective_schedule(data, &date);
-    let announcements = data
-        .announcements
-        .iter()
-        .filter(|a| schedule::announcement_visible(a, &date))
-        .cloned()
-        .collect();
+    let display_slots = schedule::effective_schedule(data, &display_date);
+    let page_slots = schedule::effective_schedule(data, &date);
+    let announcements = data.announcements.iter().filter(|a| schedule::announcement_visible(a)).cloned().collect();
     ViewModel {
-        weekday: schedule::weekday_cn(&date),
-        slots: slots.clone(),
+        weekday: schedule::weekday_cn(&display_date),
+        slots: display_slots,
         announcements,
-        homework: schedule::present_homework(data, &homework_date, submit_only),
+        homework: schedule::present_homework(data, &date, submit_only),
         speeches: day.map(|d| d.speeches.clone()).unwrap_or_default(),
         speech_warn: day.map(|d| schedule::speeches_empty(d)).unwrap_or(true),
-        homework_suggestions: schedule::homework_suggestions(&slots),
+        homework_suggestions: schedule::homework_suggestions(&page_slots),
         speech_suggestions: schedule::speech_suggestions(data, &date),
+        homework_date: date.clone(),
+        display_date,
         date,
         submit_only,
-        homework_date,
     }
 }
 
@@ -179,18 +181,12 @@ fn set_announcements(app: AppHandle, state: State<Arc<Shared>>, list: Vec<Announ
     mark_changed(&app, &state);
 }
 
+/// 公告是全局一列（所有日期共用），只有完成状态
 #[tauri::command]
 fn add_announcement(app: AppHandle, state: State<Arc<Shared>>, text: String) {
-    let today = schedule::today_string();
     let mut inner = state.inner.lock().unwrap();
     let id = inner.data.next_announcement_id();
-    inner.data.announcements.push(Announcement {
-        id,
-        text,
-        created_date: today,
-        done: false,
-        done_date: None,
-    });
+    inner.data.announcements.push(Announcement { id, text, done: false });
     drop(inner);
     mark_changed(&app, &state);
 }
@@ -205,10 +201,8 @@ fn set_weekly_schedule(app: AppHandle, state: State<Arc<Shared>>, rows: Vec<Vec<
 fn update_settings(app: AppHandle, state: State<Arc<Shared>>, settings: Settings) {
     let mut inner = state.inner.lock().unwrap();
     let data_dir = inner.data.settings.data_dir.clone();
-    let last_seen = inner.data.settings.last_seen_date.clone();
     inner.data.settings = settings;
     inner.data.settings.data_dir = data_dir;
-    inner.data.settings.last_seen_date = last_seen;
     drop(inner);
     mark_changed(&app, &state);
 }
@@ -235,6 +229,12 @@ fn save_now(state: State<Arc<Shared>>) -> Result<(), String> {
     store::save(&dir, &inner.data)?;
     inner.dirty = false;
     Ok(())
+}
+
+#[tauri::command]
+fn frontend_ready(window: Window) {
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 #[tauri::command]
@@ -272,32 +272,19 @@ fn export_image(app: AppHandle, state: State<Arc<Shared>>, bytes: Vec<u8>) -> Re
 fn background_loop(app: AppHandle, shared: Arc<Shared>) {
     loop {
         std::thread::sleep(Duration::from_millis(500));
-        let today = schedule::today_string();
-        let mut need_emit = false;
-        {
-            let mut inner = shared.inner.lock().unwrap();
-            if inner.data.settings.last_seen_date.as_deref() != Some(today.as_str()) {
-                schedule::auto_done_announcements(&mut inner.data, &today);
-                inner.data.settings.last_seen_date = Some(today.clone());
-                inner.dirty = true;
-                need_emit = true;
-            }
-            if inner.dirty && inner.last_edit.elapsed() >= Duration::from_secs(1) {
-                let dir = shared.data_dir.lock().unwrap().clone();
-                if store::save(&dir, &inner.data).is_ok() {
-                    inner.dirty = false;
-                }
-            }
-            if inner.image_dirty && !inner.presenting {
-                let interval = Duration::from_secs(inner.data.settings.image_interval_secs.max(10));
-                if inner.last_image.elapsed() >= interval {
-                    inner.last_image = Instant::now();
-                    let _ = app.emit("auto-image-request", ());
-                }
+        let mut inner = shared.inner.lock().unwrap();
+        if inner.dirty && inner.last_edit.elapsed() >= Duration::from_secs(1) {
+            let dir = shared.data_dir.lock().unwrap().clone();
+            if store::save(&dir, &inner.data).is_ok() {
+                inner.dirty = false;
             }
         }
-        if need_emit {
-            emit_state(&app, &shared);
+        if inner.image_dirty && !inner.presenting {
+            let interval = Duration::from_secs(inner.data.settings.image_interval_secs.max(10));
+            if inner.last_image.elapsed() >= interval {
+                inner.last_image = Instant::now();
+                let _ = app.emit("auto-image-request", ());
+            }
         }
     }
 }
@@ -337,12 +324,20 @@ fn main() {
             choose_data_dir,
             save_now,
             set_presenting,
+            frontend_ready,
             export_image,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let bg = shared_for_setup.clone();
             std::thread::spawn(move || background_loop(handle, bg));
+            let fallback = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(3));
+                if let Some(win) = fallback.get_webview_window("main") {
+                    let _ = win.show();
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {

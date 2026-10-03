@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
 import { listen } from "@tauri-apps/api/event";
-import { initApi, store, view, ui, applyLaunch, refreshVm, cmd, toastState, showToast } from "./api";
+import {
+  initApi,
+  store,
+  view,
+  ui,
+  applyLaunch,
+  refreshVm,
+  openPage,
+  cmd,
+  toastState,
+  showToast,
+} from "./api";
 import { loadBadge } from "./render-canvas";
+import { SECTION_KEYS, focusSection, moveRow } from "./nav";
 import { generateTodayImage } from "./image";
 import { addDays } from "./utils";
 import type { LaunchView } from "./types";
 import EditView from "./views/EditView.vue";
-import PresentView from "./views/PresentView.vue";
+
+const PresentView = defineAsyncComponent(() => import("./views/PresentView.vue"));
+const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const WeekView = defineAsyncComponent(() => import("./views/WeekView.vue"));
 
 const mode = ref<"edit" | "present">("edit");
 const ready = ref(false);
@@ -80,6 +95,24 @@ function onKey(e: KeyboardEvent) {
     }
     return;
   }
+  if (e.key === "Escape" && ui.page !== "edit") {
+    e.preventDefault();
+    ui.page = "edit";
+    return;
+  }
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    const section = SECTION_KEYS[e.key];
+    if (section) {
+      e.preventDefault();
+      focusSection(section);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveRow(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+  }
   if (e.key === "F5") {
     e.preventDefault();
     void enterPresent();
@@ -98,14 +131,14 @@ function onKey(e: KeyboardEvent) {
       void goToday();
     } else if (k === "k") {
       e.preventDefault();
-      ui.weekOpen = true;
+      openPage("week");
     } else if (k === ",") {
       e.preventDefault();
-      ui.settingsOpen = true;
+      openPage("settings");
     }
     return;
   }
-  if (typing) return;
+  if (typing || ui.page !== "edit") return;
   if (e.key === "ArrowLeft") {
     e.preventDefault();
     navDays(-1);
@@ -116,21 +149,29 @@ function onKey(e: KeyboardEvent) {
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
-let unlisten: (() => void) | undefined;
+
+function prefetchIdle() {
+  const load = () => void import("./views/PresentView.vue");
+  if ("requestIdleCallback" in window) window.requestIdleCallback(load, { timeout: 3000 });
+  else setTimeout(load, 1500);
+}
 
 onMounted(async () => {
-  await loadBadge();
-  await initApi(() => {});
-  lastLaunch = await cmd.getLaunchView();
-  unlisten = await listen("auto-image-request", () => void generateTodayImage(false));
+  const [launch] = await Promise.all([
+    initApi(() => {}),
+    loadBadge(),
+    listen("auto-image-request", () => void generateTodayImage(false)),
+  ]);
+  lastLaunch = launch;
   timer = setInterval(() => void tickRelocate(), 30_000);
   window.addEventListener("keydown", onKey);
   ready.value = true;
+  await cmd.frontendReady();
+  prefetchIdle();
 });
 
 onUnmounted(() => {
   clearInterval(timer);
-  unlisten?.();
   window.removeEventListener("keydown", onKey);
 });
 </script>
@@ -138,7 +179,9 @@ onUnmounted(() => {
 <template>
   <div v-if="!ready || !store.data" class="loading">加载中…</div>
   <template v-else>
-    <PresentView v-if="mode === 'present'" />
+    <PresentView v-if="mode === 'present'" @exit="exitPresent" />
+    <SettingsView v-else-if="ui.page === 'settings'" />
+    <WeekView v-else-if="ui.page === 'week'" />
     <EditView
       v-else
       :day-list="dayList"

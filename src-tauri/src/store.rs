@@ -211,9 +211,7 @@ mod tests {
         d.announcements.push(crate::model::Announcement {
             id: 1,
             text: "v2".into(),
-            created_date: "2026-10-01".into(),
             done: false,
-            done_date: None,
         });
         save(&dir, &d).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1100));
@@ -238,9 +236,22 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// 旧数据里的 created_date/done_date/last_seen_date 等已删字段必须被忽略，不能导致加载失败
     #[test]
-    fn empty_dir_gives_default_with_notice() {
-        let dir = temp_dir("empty");
+    fn ignores_legacy_fields_on_load() {
+        let json = r#"{
+            "version": 1, "weekly_schedule": [], "days": {},
+            "announcements": [{"id": 1, "text": "旧公告", "created_date": "2026-09-30", "done": true, "done_date": "2026-10-01"}],
+            "settings": {"data_dir": null, "image_interval_secs": 60, "morning_cutoff": "08:00", "show_badge": true, "last_seen_date": "2026-10-01"}
+        }"#;
+        let data: AppData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.announcements.len(), 1);
+        assert!(data.announcements[0].done);
+        assert_eq!(data.announcements[0].text, "旧公告");
+    }
+
+    #[test]
+    fn empty_dir_gives_default_with_notice() {        let dir = temp_dir("empty");
         let (d, notice) = load_or_recover(&dir);
         assert!(d.days.is_empty());
         assert!(notice.is_some());

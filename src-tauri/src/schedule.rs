@@ -114,17 +114,26 @@ pub fn homework_suggestions(slots: &[Slot]) -> Vec<String> {
     out
 }
 
-/// 演讲建议学科：用明天课表
+/// 演讲建议学科：下一个上学日（周五→周一，调休日算上学日）
 pub fn speech_suggestions(data: &AppData, date: &str) -> Vec<String> {
-    let tomorrow = add_days(date, 1);
-    homework_suggestions(&effective_schedule(data, &tomorrow))
+    let next = next_school_day(data, date);
+    homework_suggestions(&effective_schedule(data, &next))
 }
 
 /// 上一个上学日：工作日，或 days 中存在条目的调休上学日
 pub fn prev_school_day(data: &AppData, today: &str) -> String {
-    let mut d = parse_date(today).unwrap_or_else(|| Local::now().date_naive());
+    step_school_day(data, today, -1)
+}
+
+/// 下一个上学日：工作日，或 days 中存在条目的调休上学日
+pub fn next_school_day(data: &AppData, date: &str) -> String {
+    step_school_day(data, date, 1)
+}
+
+fn step_school_day(data: &AppData, from: &str, step: i64) -> String {
+    let mut d = parse_date(from).unwrap_or_else(|| Local::now().date_naive());
     for _ in 0..14 {
-        d -= chrono::Duration::days(1);
+        d += chrono::Duration::days(step);
         let s = format_date(d);
         let wd = weekday_index(&s).unwrap_or(0);
         if wd < 5 || data.days.contains_key(&s) {
@@ -140,44 +149,30 @@ pub fn cutoff_time(s: &str) -> NaiveTime {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct LaunchView {
+    /// 页面日 = 作业所属日（也是编辑页正在编辑的那天）
     pub date: String,
     pub submit_only: bool,
-    pub homework_date: String,
 }
 
-/// 启动/重定位：早于 cutoff → 只显示要交（作业来自上一上学日）；否则今天全部
+/// 启动/重定位：早于 cutoff → 页面日取上一上学日 + 仅要交（画面上显示今天要交的）；
+/// 否则页面日 = 今天 + 全部。
 pub fn launch_view(data: &AppData, today: &str, now_time: NaiveTime) -> LaunchView {
     if now_time < cutoff_time(&data.settings.morning_cutoff) {
         LaunchView {
-            date: today.to_string(),
+            date: prev_school_day(data, today),
             submit_only: true,
-            homework_date: prev_school_day(data, today),
         }
     } else {
         LaunchView {
             date: today.to_string(),
             submit_only: false,
-            homework_date: today.to_string(),
         }
     }
 }
 
-/// 公告可见性：创建日 <= 查看日，且未完成或完成日晚于查看日
-pub fn announcement_visible(a: &Announcement, view_date: &str) -> bool {
-    a.created_date.as_str() <= view_date && (!a.done || a.done_date.as_deref().unwrap_or("") > view_date)
-}
-
-/// 每天首次打开今天：把更早创建且未完成的公告自动标记完成
-pub fn auto_done_announcements(data: &mut AppData, today: &str) -> bool {
-    let mut changed = false;
-    for a in data.announcements.iter_mut() {
-        if !a.done && a.created_date.as_str() < today {
-            a.done = true;
-            a.done_date = Some(today.to_string());
-            changed = true;
-        }
-    }
-    changed
+/// 公告是全局一列、不分日期：只有未完成的才显示在放映画面上
+pub fn announcement_visible(a: &Announcement) -> bool {
+    !a.done
 }
 
 /// 演讲提醒是否完全未填写
@@ -300,6 +295,21 @@ mod tests {
     }
 
     #[test]
+    fn next_school_day_skips_weekend() {
+        let d = data();
+        assert_eq!(next_school_day(&d, "2026-10-02"), "2026-10-05"); // 周五 → 下周一
+        assert_eq!(next_school_day(&d, "2026-10-01"), "2026-10-02");
+    }
+
+    #[test]
+    fn next_school_day_respects_makeup() {
+        let mut d = data();
+        d.days.insert("2026-10-04".into(), Day::default()); // 周日调休上学
+        assert_eq!(next_school_day(&d, "2026-10-02"), "2026-10-04"); // 周五 → 周日（周六仍跳过）
+        assert_eq!(next_school_day(&d, "2026-10-04"), "2026-10-05"); // 周日 → 周一
+    }
+
+    #[test]
     fn prev_school_day_uses_makeup() {
         let mut d = data();
         d.days.insert("2026-10-04".into(), Day::default()); // 周日调休上学
@@ -310,10 +320,9 @@ mod tests {
     fn launch_before_cutoff() {
         let d = data();
         let t = chrono::NaiveTime::from_hms_opt(7, 30, 0).unwrap();
-        let v = launch_view(&d, "2026-10-02", t);
+        let v = launch_view(&d, "2026-10-02", t); // 周五早上
         assert!(v.submit_only);
-        assert_eq!(v.date, "2026-10-02");
-        assert_eq!(v.homework_date, "2026-10-01");
+        assert_eq!(v.date, "2026-10-01"); // 页面日 = 上一上学日（周四）
     }
 
     #[test]
@@ -322,48 +331,14 @@ mod tests {
         let t = chrono::NaiveTime::from_hms_opt(8, 0, 0).unwrap();
         let v = launch_view(&d, "2026-10-02", t);
         assert!(!v.submit_only);
-        assert_eq!(v.homework_date, "2026-10-02");
+        assert_eq!(v.date, "2026-10-02");
     }
 
     #[test]
-    fn announcement_visibility() {
-        let a = Announcement {
-            id: 1,
-            text: "x".into(),
-            created_date: "2026-09-30".into(),
-            done: false,
-            done_date: None,
-        };
-        assert!(announcement_visible(&a, "2026-09-30"));
-        assert!(announcement_visible(&a, "2026-10-01"));
-        assert!(!announcement_visible(&a, "2026-09-29"));
-        let done = Announcement { done: true, done_date: Some("2026-10-02".into()), ..a.clone() };
-        assert!(announcement_visible(&done, "2026-10-01")); // 完成日晚于查看日仍可见
-        assert!(!announcement_visible(&done, "2026-10-02"));
-    }
-
-    #[test]
-    fn auto_done_marks_old() {
-        let mut d = data();
-        d.announcements.push(Announcement {
-            id: 1,
-            text: "旧".into(),
-            created_date: "2026-09-30".into(),
-            done: false,
-            done_date: None,
-        });
-        d.announcements.push(Announcement {
-            id: 2,
-            text: "新".into(),
-            created_date: "2026-10-01".into(),
-            done: false,
-            done_date: None,
-        });
-        assert!(auto_done_announcements(&mut d, "2026-10-01"));
-        assert!(d.announcements[0].done);
-        assert_eq!(d.announcements[0].done_date.as_deref(), Some("2026-10-01"));
-        assert!(!d.announcements[1].done);
-        assert!(!auto_done_announcements(&mut d, "2026-10-01"));
+    fn announcement_visibility_is_global() {
+        let open = Announcement { id: 1, text: "x".into(), done: false };
+        assert!(announcement_visible(&open));
+        assert!(!announcement_visible(&Announcement { done: true, ..open.clone() }));
     }
 
     #[test]

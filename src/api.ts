@@ -25,12 +25,15 @@ export const view = reactive({
 
 export const vm = ref<ViewModel | null>(null);
 
+export type Page = "edit" | "settings" | "week";
+
 export const ui = reactive({
-  settingsOpen: false,
-  weekOpen: false,
-  addDayOpen: false,
-  deleteDayOpen: false,
+  page: "edit" as Page,
 });
+
+export function openPage(page: Page) {
+  ui.page = ui.page === page ? "edit" : page;
+}
 
 export const toastState = reactive({ text: "", key: 0 });
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,16 +64,17 @@ export function applyLaunch(l: LaunchView) {
   view.submitOnly = l.submit_only;
 }
 
-export async function initApi(onState: () => void) {
-  const p = await invoke<StatePayload>("get_state");
-  applyPayload(p);
-  applyLaunch(p.launch);
-  await refreshVm();
-  await listen<StatePayload>("state-changed", async (e) => {
+export async function initApi(onState: () => void): Promise<LaunchView> {
+  const listening = listen<StatePayload>("state-changed", async (e) => {
     applyPayload(e.payload);
     await refreshVm();
     onState();
   });
+  const p = await invoke<StatePayload>("get_state");
+  applyPayload(p);
+  applyLaunch(p.launch);
+  await Promise.all([listening, refreshVm()]);
+  return p.launch;
 }
 
 export const cmd = {
@@ -84,6 +88,7 @@ export const cmd = {
   updateSettings: (settings: Settings) => invoke("update_settings", { settings }),
   chooseDataDir: () => invoke<string | null>("choose_data_dir"),
   saveNow: () => invoke("save_now"),
+  frontendReady: () => invoke("frontend_ready"),
   setPresenting: (on: boolean) => invoke("set_presenting", { on }),
   exportImage: (bytes: Uint8Array) => invoke<string>("export_image", { bytes }),
   getLaunchView: () => invoke<LaunchView>("get_launch_view"),

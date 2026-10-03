@@ -19,9 +19,7 @@ export interface Day {
 export interface Announcement {
   id: number;
   text: string;
-  created_date: string;
   done: boolean;
-  done_date: string | null;
 }
 
 export interface Settings {
@@ -29,7 +27,6 @@ export interface Settings {
   image_interval_secs: number;
   morning_cutoff: string;
   show_badge: boolean;
-  last_seen_date: string | null;
 }
 
 export interface AppData {
@@ -43,7 +40,6 @@ export interface AppData {
 export interface LaunchView {
   date: string;
   submit_only: boolean;
-  homework_date: string;
 }
 
 export interface StatePayload {
@@ -61,6 +57,7 @@ export interface Slot {
 
 export interface ViewModel {
   date: string;
+  display_date: string;
   weekday: string;
   submit_only: boolean;
   homework_date: string;

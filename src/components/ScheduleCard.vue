@@ -11,6 +11,10 @@ const baseIdx = computed(() => {
   return (parseDate(view.date).getDay() + 6) % 7;
 });
 
+const title = computed(
+  () => `课表（${WEEKDAYS[baseIdx.value]}${draft.value.copied_from_weekday != null ? "·调休" : ""}）`
+);
+
 function baseOf(i: number): string {
   return store.data?.weekly_schedule?.[baseIdx.value]?.[i] ?? "";
 }
@@ -25,36 +29,44 @@ function onInput(i: number, e: Event) {
   saveDraft();
 }
 
-function onCopyChange(e: Event) {
-  const v = (e.target as HTMLSelectElement).value;
-  draft.value.copied_from_weekday = v === "" ? null : Number(v);
-  saveDraft();
+const inputRefs = new Map<number, HTMLInputElement>();
+
+function setInputRef(i: number, el: unknown) {
+  if (el) inputRefs.set(i, el as HTMLInputElement);
+  else inputRefs.delete(i);
+}
+
+/** 回车顺次跳到下一节课 */
+function onKey(i: number, e: KeyboardEvent) {
+  if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey) return;
+  e.preventDefault();
+  const next = inputRefs.get(i + 1);
+  next?.focus();
+  next?.select();
 }
 </script>
 
 <template>
   <section class="card">
     <h3>
-      课表（{{ WEEKDAYS[baseIdx] }}）
-      <span class="hint">修改自动标红，改回模版自动取消</span>
+      <span>{{ title }}</span>
+      <span class="hint">修改自动标红，改回模版自动取消；回车跳下一节</span>
     </h3>
-    <div class="edit-row">
-      <span class="sub">调休</span>
-      <select :value="draft.copied_from_weekday ?? ''" @change="onCopyChange">
-        <option value="">按当天星期</option>
-        <option v-for="(w, i) in WEEKDAYS.slice(0, 5)" :key="i" :value="i">上{{ w }}的课</option>
-      </select>
-    </div>
-    <div v-for="i in 9" :key="i" class="edit-row">
-      <span class="sub">{{ i }}</span>
-      <input
-        type="text"
-        class="grow"
-        :class="{ overridden: overrideOf(i - 1) !== '' }"
-        :value="overrideOf(i - 1)"
-        :placeholder="baseOf(i - 1) || '（空）'"
-        @input="onInput(i - 1, $event)"
-      />
+    <div class="card-body">
+      <div v-for="i in 9" :key="i" class="edit-row">
+        <span class="sub">{{ i }}</span>
+        <input
+          type="text"
+          class="grow"
+          data-nav="sched"
+          :ref="(el) => setInputRef(i - 1, el)"
+          :class="{ overridden: overrideOf(i - 1) !== '' }"
+          :value="overrideOf(i - 1)"
+          :placeholder="baseOf(i - 1) || '（空）'"
+          @input="onInput(i - 1, $event)"
+          @keydown="onKey(i - 1, $event)"
+        />
+      </div>
     </div>
   </section>
 </template>

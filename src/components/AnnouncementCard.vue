@@ -18,35 +18,46 @@ function add() {
 }
 
 function toggle(a: Announcement) {
-  const copy = list.value.map((x) => ({ ...x }));
-  const it = copy.find((x) => x.id === a.id)!;
-  it.done = !it.done;
-  it.done_date = it.done ? store.today : null;
-  save(copy);
+  save(list.value.map((x) => (x.id === a.id ? { ...x, done: !x.done } : { ...x })));
 }
 
 function remove(a: Announcement) {
   save(list.value.filter((x) => x.id !== a.id));
+}
+
+function onRowKey(a: Announcement, e: KeyboardEvent) {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  toggle(a);
 }
 </script>
 
 <template>
   <section class="card">
     <h3>
-      公告
-      <span class="hint">勾选完成后放映不再显示；新的一天会自动完成昨天的公告</span>
+      <span>公告</span>
+      <span class="hint">所有日期共用这一份公告；勾选完成后放映不再显示；回车切换完成</span>
     </h3>
-    <div v-for="a in list" :key="a.id" class="edit-row ann" :class="{ done: a.done }">
-      <input type="checkbox" :checked="a.done" title="完成" @change="toggle(a)" />
-      <span class="grow">{{ a.text }}</span>
-      <span class="hint">{{ a.created_date.slice(5) }}</span>
-      <button class="danger" @click="remove(a)">删除</button>
+    <div class="ann-list">
+      <div v-for="a in list" :key="a.id" class="edit-row ann" :class="{ done: a.done }">
+        <input
+          type="checkbox"
+          data-nav="ann"
+          :checked="a.done"
+          title="完成（回车切换）"
+          @change="toggle(a)"
+          @keydown="onRowKey(a, $event)"
+        />
+        <span class="grow">{{ a.text }}</span>
+        <button class="danger" @click="remove(a)">删除</button>
+      </div>
     </div>
     <div class="edit-row">
       <input
         v-model="newText"
         type="text"
         class="grow"
+        data-nav="ann"
         placeholder="新公告，回车添加…"
         @keydown.enter="add"
       />
@@ -56,6 +67,15 @@ function remove(a: Announcement) {
 </template>
 
 <style scoped>
+/* 固定显示 4 行，多出来的在这块里滚动；行高固定，切断位置正好落在行边界上 */
+.ann-list {
+  max-height: 136px;
+  overflow-y: auto;
+}
+.ann-list .edit-row {
+  height: 34px;
+  padding: 0;
+}
 .ann.done .grow {
   text-decoration: line-through;
   color: var(--gray);

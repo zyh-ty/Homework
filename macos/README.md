@@ -7,7 +7,7 @@
 
 ```bash
 cd macos
-swift test                     # 30 个单元测试（课表调度 / 存储 / 节假日）
+swift test                     # 40 个单元测试（课表调度 / 存储 / 节假日 / 编解码契约）
 ./scripts/build-app.sh         # 发布构建（universal：Intel + Apple Silicon）→ build/每日作业.app
 open build/每日作业.app
 ./scripts/build-app.sh debug   # 调试构建
@@ -29,6 +29,22 @@ swift scripts/make-dmg-background.swift build/dmg-background.png 660 420
 ```
 
 与 Windows 版（Tauri）的差异审计见 [PARITY.md](PARITY.md)。
+
+## 数据契约
+
+`fixtures/data.sample.json` 是两版共用的编解码契约样本（含旧版遗留字段），
+Rust 侧 `store::tests::decodes_shared_fixture` 与 Swift 侧 `decodesCanonicalFixture` 各读一遍，
+并断言双方**写出**的结构一致——数据互读不再只靠口头约定。
+
+解码严格度对齐 Rust serde：
+
+- 字段**缺失** → 用默认值（对齐容器级 `#[serde(default)]`）
+- 显式 **null** 或**类型不符** → 整体加载失败，交给备份恢复（`loadOrRecover`）并提示，
+  而不是静默退化成空数据；只有 Rust 声明为 `Option` 的字段（`copied_from_weekday`、`data_dir`）接受 null
+- 旧字段（`created_date` 等）加载时忽略、写出时丢弃
+
+> 早先的实现把上述情况一律回退默认值，`days` 一旦被写成 `null` 就会「加载成功但所有天都没了」，
+> 且不触发备份恢复——现在这类结构损坏必定走恢复路径。
 
 无界面出图（验证放映版式用）：
 

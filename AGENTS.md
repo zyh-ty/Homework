@@ -106,7 +106,7 @@ render-canvas.ts 负责屏幕与导出两条路径。新增视觉元素只改 la
 ```bash
 npm install
 npm run build              # 仅前端 → dist/
-cd src-tauri && cargo test # 23 个单元测试（store/schedule）
+cd src-tauri && cargo test # 27 个单元测试（store/schedule，含 fixtures/ 共享契约）
 npm run tauri build        # 完整发布构建 → src-tauri/target/release/homework-client.exe
 cp src-tauri/target/release/homework-client.exe 每日作业.exe
 npm run tauri dev          # 开发模式

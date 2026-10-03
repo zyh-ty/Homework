@@ -11,9 +11,16 @@ B 版 = `macos/Sources/`（本机原生 SwiftUI 版）。
 | --- | --- | --- |
 | 作业卡 `⌃↩` 完全失效 | `fieldOrder` 存的是行 id（`语文#0`），`toggleCurrentField` 却拿它当学科名比对 `subject`，永不命中；作业条目的「明天交」标记无法用键盘切换 | `AppState.swift:536`（原） |
 | 放映中仍可换天 | 全屏放映时 `handleKey` 只是放行按键（`return false`），菜单快捷键 `⌘T` `⌘[` `⌘]` 照旧生效，投影内容会当场跳天 | `AppState.swift:385`、`HomeworkMacApp.swift:51-56` |
+| 结构性字段被静默降级（H3） | 缺失 / 显式 null / 类型不符一律回退默认值：`days` 被写成 `null` 时得到 `days = [:]` 且 `Store.load` 仍算成功，不走备份恢复、不提示，看起来就是「所有天都没了」 | `Model.swift:29-31`（原） |
+| 修 H3 时发现的连带缺陷 | 用来区分「字段缺失」的 `keyNotFound` 捕获会把**嵌套元素**抛出的同类错误一起吞掉——`homework` 里某个条目缺字段会被静默丢成空数组 | `Model.swift` 的 `decodeDefaulted` |
 
-修复：`toggleCurrentField` 按 `学科#序号` 解析后映射到真实下标，与 `HomeworkCard.rows` 的生成规则一致；
-`goToday`/`stepDay` 增加 `isPresenting` 守卫，菜单项同步 `.disabled`。
+修复：`toggleCurrentField` 按 `学科#序号` 解析后映射到真实下标；`goToday`/`stepDay` 增加 `isPresenting` 守卫，
+菜单项同步 `.disabled`；解码改为「缺失→默认值、显式 null/类型不符→整体失败」，
+并用 `container.contains` 而非捕获 `keyNotFound` 来区分两种情形。
+
+验证：`swift test` 40 个用例（新增 10 个：fixture 解码 / 结构字段 null 拒绝 / 类型不符拒绝 /
+条目缺字段拒绝 / 可选字段接受 null / 旧字段忽略 / 恢复链路）、`cargo test` 27 个用例通过；
+并用真实数据文件（仓库内 Windows 版数据与 `~/Documents/每日作业数据`）实跑严格解码，两者均正常加载。
 
 ## 二、高危差异（需决策，未改动）
 
@@ -41,15 +48,6 @@ B 版 = `macos/Sources/`（本机原生 SwiftUI 版）。
   周总览也不置空（`:257-266`）——自己「建议有课、画面无课」。
 
 建议：`isSchoolDay` 让「用户建过天」优先于日历假日；`adoptMakeupDay` 明确课表来源（默认取上一个工作日的星期几）。
-
-### H3 容错策略相反：A 版报错走备份恢复，B 版静默降级
-
-`Model.swift:29-31` 的 `decodeValue` 把「字段缺失 / 显式 null / 类型不符」一律回退默认值。
-于是 `days` 异常时 B 版得到 `days = [:]` 且 `Store.load` 仍返回成功（`Store.swift:112`），
-不会去遍历 `backups/`、不回写、不提示——用户看到「所有天都没了」。
-A 版同输入直接解析失败，`store.rs:58-79` 用最近备份恢复并 toast。
-
-建议：结构性字段（`weekly_schedule` / `days` / `announcements` / `settings`）严格解码，失败即抛出交给 `loadOrRecover`。
 
 ### H4 放映版式改形：作业卡会拆列，字号可超过公告
 
@@ -89,9 +87,9 @@ A 版 toast 压在黑幕上可见（`App.vue:193`、`style.css:148-160`）；B �
 
 ## 四、建议的修复顺序
 
-1. H1 自动出图（会让幻灯片取不到「今天的图」，真实事故面最大）
-2. H2 节假日优先级的自相矛盾（空课表 + 建议/画面不一致）
-3. H3 结构性字段严格解码（防静默丢数据）
+1. ~~H3 结构性字段严格解码（防静默丢数据）~~ —— 已完成，见第一节
+2. H1 自动出图（会让幻灯片取不到「今天的图」，真实事故面最大）
+3. H2 节假日优先级的自相矛盾（空课表 + 建议/画面不一致）
 4. H4 放映版式回归 A 版规则（字号上限、取消拆列）
 5. H5 放映中 toast
 6. 启动白闪 / 最小窗口尺寸

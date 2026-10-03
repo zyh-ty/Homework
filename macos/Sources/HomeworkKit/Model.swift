@@ -25,9 +25,22 @@ enum JSONKey: String, CodingKey {
     case done
 }
 
-/// 缺字段/字段类型不符时回退到默认值（对齐原 Rust 端的 `#[serde(default)]`）
-func decodeValue<T: Decodable>(_ container: KeyedDecodingContainer<JSONKey>, _ key: JSONKey, _ fallback: T) -> T {
-    ((try? container.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+/// 字段缺失 → 默认值（对齐 Rust 端容器级 `#[serde(default)]`）
+/// 显式 null 或类型不符 → 抛出，整个文件加载失败并走备份恢复（对齐 Rust 端非 Option 字段的语义）
+/// 注意必须用 `contains` 区分「字段不存在」与「字段存在但内容非法」：后者抛出的
+/// keyNotFound 来自嵌套元素，不能被当成缺字段吞掉，否则会静默丢条目。
+func decodeDefaulted<T: Decodable>(
+    _ container: KeyedDecodingContainer<JSONKey>, _ key: JSONKey, _ fallback: T
+) throws -> T {
+    guard container.contains(key) else { return fallback }
+    return try container.decode(T.self, forKey: key)
+}
+
+/// 真正可选的字段（对齐 Rust 端 `Option<T>`）：缺失或 null 都得到 nil，类型不符仍抛出
+func decodeOptional<T: Decodable>(
+    _ container: KeyedDecodingContainer<JSONKey>, _ key: JSONKey
+) throws -> T? {
+    try container.decodeIfPresent(T.self, forKey: key)
 }
 
 public struct HomeworkItem: Codable, Hashable, Sendable {
@@ -43,9 +56,9 @@ public struct HomeworkItem: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        subject = decodeValue(c, .subject, "")
-        text = decodeValue(c, .text, "")
-        submitNext = decodeValue(c, .submitNext, false)
+        subject = try c.decode(String.self, forKey: .subject)
+        text = try c.decode(String.self, forKey: .text)
+        submitNext = try c.decode(Bool.self, forKey: .submitNext)
     }
 }
 
@@ -60,8 +73,8 @@ public struct SpeechEntry: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        subject = decodeValue(c, .subject, "")
-        students = decodeValue(c, .students, "")
+        subject = try c.decode(String.self, forKey: .subject)
+        students = try c.decode(String.self, forKey: .students)
     }
 }
 
@@ -85,10 +98,10 @@ public struct Day: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        scheduleOverride = decodeValue(c, .scheduleOverride, Array(repeating: nil, count: PERIODS))
-        homework = decodeValue(c, .homework, [])
-        speeches = decodeValue(c, .speeches, [])
-        copiedFromWeekday = decodeValue(c, .copiedFromWeekday, Int?.none)
+        scheduleOverride = try decodeDefaulted(c, .scheduleOverride, Array(repeating: nil, count: PERIODS))
+        homework = try decodeDefaulted(c, .homework, [])
+        speeches = try decodeDefaulted(c, .speeches, [])
+        copiedFromWeekday = try decodeOptional(c, .copiedFromWeekday)
         scheduleOverride = Schedule.normalizedOverride(scheduleOverride)
     }
 
@@ -119,9 +132,9 @@ public struct Announcement: Codable, Hashable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        id = decodeValue(c, .id, 0)
-        text = decodeValue(c, .text, "")
-        done = decodeValue(c, .done, false)
+        id = try c.decode(Int.self, forKey: .id)
+        text = try c.decode(String.self, forKey: .text)
+        done = try c.decode(Bool.self, forKey: .done)
     }
 }
 
@@ -145,10 +158,10 @@ public struct Settings: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        dataDir = decodeValue(c, .dataDir, String?.none)
-        imageIntervalSecs = decodeValue(c, .imageIntervalSecs, 60)
-        morningCutoff = decodeValue(c, .morningCutoff, "08:00")
-        showBadge = decodeValue(c, .showBadge, true)
+        dataDir = try decodeOptional(c, .dataDir)
+        imageIntervalSecs = try decodeDefaulted(c, .imageIntervalSecs, 60)
+        morningCutoff = try decodeDefaulted(c, .morningCutoff, "08:00")
+        showBadge = try decodeDefaulted(c, .showBadge, true)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -187,11 +200,11 @@ public struct AppData: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: JSONKey.self)
-        version = decodeValue(c, .version, 1)
-        weeklySchedule = decodeValue(c, .weeklySchedule, Schedule.defaultWeeklySchedule())
-        days = decodeValue(c, .days, [:])
-        announcements = decodeValue(c, .announcements, [])
-        settings = decodeValue(c, .settings, Settings())
+        version = try decodeDefaulted(c, .version, 1)
+        weeklySchedule = try decodeDefaulted(c, .weeklySchedule, Schedule.defaultWeeklySchedule())
+        days = try decodeDefaulted(c, .days, [:])
+        announcements = try decodeDefaulted(c, .announcements, [])
+        settings = try decodeDefaulted(c, .settings, Settings())
         normalize()
     }
 

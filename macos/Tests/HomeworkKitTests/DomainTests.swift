@@ -368,3 +368,160 @@ private func nationalDayTable() -> HolidayTable {
         table: table, userDays: Set(withDay.days.keys), from: "2026-10-01", within: 21
     ).isEmpty)
 }
+
+// MARK: - 与 Windows 版（serde）的编解码契约
+
+/// 仓库根 fixtures/data.sample.json：两版共用的契约样本（含旧版遗留字段）
+private func fixtureURL() -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()   // HomeworkKitTests
+        .deletingLastPathComponent()   // Tests
+        .deletingLastPathComponent()   // macos
+        .deletingLastPathComponent()   // 仓库根
+        .appendingPathComponent("fixtures/data.sample.json")
+}
+
+private func decodeJSON(_ text: String) throws -> AppData {
+    try Store.makeDecoder().decode(AppData.self, from: Data(text.utf8))
+}
+
+@Test func decodesCanonicalFixture() throws {
+    let data = try Store.makeDecoder().decode(AppData.self, from: Data(contentsOf: fixtureURL()))
+
+    #expect(data.version == 1)
+    #expect(data.weeklySchedule.count == 7)
+    #expect(data.weeklySchedule[0][0] == "语文")
+    #expect(data.weeklySchedule[5].allSatisfy { $0.isEmpty })
+
+    #expect(data.days.count == 2)
+    let wednesday = try #require(data.days["2026-09-30"])
+    #expect(wednesday.scheduleOverride[1] == "体育")
+    #expect(wednesday.scheduleOverride[0] == nil)
+    #expect(wednesday.homework.count == 4)
+    #expect(wednesday.homework[1].text == "随笔一篇（不少于 600 字）")
+    #expect(wednesday.homework[1].submitNext)
+    #expect(wednesday.speeches.map(\.subject) == ["英语A", "语文"])
+    #expect(wednesday.speeches[0].students == "12、15")
+    #expect(wednesday.copiedFromWeekday == nil)
+
+    let makeup = try #require(data.days["2026-10-09"])
+    #expect(makeup.copiedFromWeekday == 0)
+
+    #expect(data.announcements.count == 2)
+    #expect(data.announcements[0].text == "明天下午 3 点召开家长会，请家长准时参加")
+    #expect(data.announcements[0].done == false)
+    #expect(data.announcements[1].done)
+
+    #expect(data.settings.dataDir == nil)
+    #expect(data.settings.imageIntervalSecs == 90)
+    #expect(data.settings.morningCutoff == "07:40")
+    #expect(data.settings.showBadge)
+}
+
+@Test func fixtureSurvivesEncodeDecodeRoundtrip() throws {
+    let original = try Store.makeDecoder().decode(AppData.self, from: Data(contentsOf: fixtureURL()))
+    let reencoded = try Store.encode(original)
+    #expect(try Store.makeDecoder().decode(AppData.self, from: reencoded) == original)
+}
+
+/// 写出后重新解析，与 fixture 逐字段同构（键序、pretty 格式无关）
+@Test func encodedOutputMatchesFixtureShape() throws {
+    let original = try Store.makeDecoder().decode(AppData.self, from: Data(contentsOf: fixtureURL()))
+    let encoded = try Store.encode(original)
+    let fixture = try #require(
+        try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL())) as? [String: Any]
+    )
+    let written = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+    #expect(written["version"] as? Int == fixture["version"] as? Int)
+    #expect(written["weekly_schedule"] as? [[String]] == fixture["weekly_schedule"] as? [[String]])
+    #expect(Set((written["days"] as? [String: Any] ?? [:]).keys)
+        == Set((fixture["days"] as? [String: Any] ?? [:]).keys))
+    #expect(NSDictionary(dictionary: try #require(written["settings"] as? [String: Any]))
+        == NSDictionary(dictionary: try #require(fixture["settings"] as? [String: Any])))
+
+    // fixture 故意带旧字段（created_date）：加载时忽略、写出时丢弃，两版一致
+    let fixtureAnnouncements = try #require(fixture["announcements"] as? [[String: Any]])
+    #expect(fixtureAnnouncements[0]["created_date"] != nil)
+    let writtenAnnouncements = try #require(written["announcements"] as? [[String: Any]])
+    #expect(writtenAnnouncements.count == fixtureAnnouncements.count)
+    #expect(writtenAnnouncements.allSatisfy { Set($0.keys) == ["id", "text", "done"] })
+}
+
+@Test func ignoresUnknownLegacyFields() throws {
+    let text = """
+    {"version":1,"weekly_schedule":[],"days":{"2026-10-01":{"homework":[],"speeches":[],
+    "announcements_legacy":1,"created_date":"2026-01-01"}},"announcements":[],
+    "settings":{"data_dir":null,"image_interval_secs":60,"morning_cutoff":"08:00","show_badge":true},
+    "unknown_top":true}
+    """
+    let data = try decodeJSON(text)
+    #expect(data.days.count == 1)
+    #expect(data.settings.imageIntervalSecs == 60)
+}
+
+@Test func explicitNullForOptionalFieldsIsAccepted() throws {
+    let text = """
+    {"days":{"2026-10-01":{"schedule_override":[null,null,null,null,null,null,null,null,null],
+    "homework":[],"speeches":[],"copied_from_weekday":null}},
+    "settings":{"data_dir":null}}
+    """
+    let data = try decodeJSON(text)
+    #expect(data.days["2026-10-01"]?.copiedFromWeekday == nil)
+    #expect(data.settings.dataDir == nil)
+}
+
+/// 结构性字段被写成 null 时必须整体失败（否则会静默变成空数据并回写，等于丢数据）
+@Test func rejectsNullStructuralFields() {
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"days":null}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"announcements":null}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"weekly_schedule":null}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"settings":null}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"days":{"2026-10-01":null}}"#) }
+}
+
+@Test func rejectsTypeMismatch() {
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"days":[]}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"announcements":{}}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"version":"1"}"#) }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"settings":{"show_badge":"yes"}}"#) }
+}
+
+/// 条目字段缺失与 Rust 端一致地失败（serde 在这些结构体上没有 default）
+@Test func rejectsItemMissingRequiredFields() {
+    #expect(throws: (any Error).self) {
+        try decodeJSON(#"{"days":{"2026-10-01":{"homework":[{"subject":"语文","text":"背书"}]}}}"#)
+    }
+    #expect(throws: (any Error).self) {
+        try decodeJSON(#"{"days":{"2026-10-01":{"speeches":[{"subject":"语文"}]}}}"#)
+    }
+    #expect(throws: (any Error).self) { try decodeJSON(#"{"announcements":[{"id":1,"text":"x"}]}"#) }
+    #expect(throws: (any Error).self) {
+        try decodeJSON(#"{"days":{"2026-10-01":{"homework":[{"subject":null,"text":"","submit_next":false}]}}}"#)
+    }
+}
+
+@Test func missingContainerFieldsFallBackToDefaults() throws {
+    let data = try decodeJSON("{}")
+    #expect(data.version == 1)
+    #expect(data.weeklySchedule == Schedule.defaultWeeklySchedule())
+    #expect(data.days.isEmpty)
+    #expect(data.announcements.isEmpty)
+    #expect(data.settings.imageIntervalSecs == 60)
+    #expect(data.settings.morningCutoff == "08:00")
+    #expect(data.settings.showBadge)
+}
+
+/// 主文件被写坏时走备份恢复，而不是「加载成功但内容是空的」
+@Test func nulledMainFileRecoversFromBackup() throws {
+    let dir = tempDir("strict_recovery")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let good = sample()
+    try Store.save(dir, good)
+    try Store.save(dir, good)
+    try Data(#"{"version":1,"days":null}"#.utf8).write(to: Store.dataFile(dir))
+
+    let (recovered, notice) = Store.loadOrRecover(dir)
+    #expect(recovered == good)
+    #expect(notice?.contains("已从备份") == true)
+}

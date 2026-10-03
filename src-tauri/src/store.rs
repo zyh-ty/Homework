@@ -250,8 +250,74 @@ mod tests {
         assert_eq!(data.announcements[0].text, "旧公告");
     }
 
+    /// 仓库根 fixtures/data.sample.json：两版共用的编解码契约
+    const FIXTURE: &str = include_str!("../../fixtures/data.sample.json");
+
     #[test]
-    fn empty_dir_gives_default_with_notice() {        let dir = temp_dir("empty");
+    fn decodes_shared_fixture() {
+        let data: AppData = serde_json::from_str(FIXTURE).unwrap();
+        assert_eq!(data.version, 1);
+        assert_eq!(data.weekly_schedule.len(), 7);
+        assert_eq!(data.weekly_schedule[0][0], "语文");
+        assert!(data.weekly_schedule[5].iter().all(|s| s.is_empty()));
+        assert_eq!(data.days.len(), 2);
+
+        let wed = &data.days["2026-09-30"];
+        assert_eq!(wed.schedule_override[1].as_deref(), Some("体育"));
+        assert_eq!(wed.schedule_override[0], None);
+        assert_eq!(wed.homework.len(), 4);
+        assert_eq!(wed.homework[1].text, "随笔一篇（不少于 600 字）");
+        assert!(wed.homework[1].submit_next);
+        assert_eq!(wed.speeches[0].subject, "英语A");
+        assert_eq!(wed.speeches[0].students, "12、15");
+        assert_eq!(wed.copied_from_weekday, None);
+        assert_eq!(data.days["2026-10-09"].copied_from_weekday, Some(0));
+
+        assert_eq!(data.announcements.len(), 2);
+        assert!(!data.announcements[0].done);
+        assert!(data.announcements[1].done);
+        assert_eq!(data.settings.data_dir, None);
+        assert_eq!(data.settings.image_interval_secs, 90);
+        assert_eq!(data.settings.morning_cutoff, "07:40");
+        assert!(data.settings.show_badge);
+    }
+
+    /// 写出的 JSON 与 fixture 语义一致：旧字段被丢弃，其余逐字段相同
+    #[test]
+    fn writes_canonical_fixture_shape() {
+        let mut data: AppData = serde_json::from_str(FIXTURE).unwrap();
+        data.normalize();
+        let written: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+
+        assert_eq!(written["version"], fixture["version"]);
+        assert_eq!(written["weekly_schedule"], fixture["weekly_schedule"]);
+        assert_eq!(written["settings"], fixture["settings"]);
+        assert_eq!(
+            written["days"]["2026-09-30"]["schedule_override"],
+            fixture["days"]["2026-09-30"]["schedule_override"]
+        );
+        assert!(
+            fixture["announcements"][0].get("created_date").is_some(),
+            "fixture 故意携带旧字段"
+        );
+        assert!(
+            written["announcements"][0].get("created_date").is_none(),
+            "写出时旧字段被丢弃"
+        );
+        assert_eq!(
+            written["announcements"],
+            serde_json::json!([
+                {"id": 1, "text": "明天下午 3 点召开家长会，请家长准时参加", "done": false},
+                {"id": 2, "text": "校服征订本周截止", "done": true}
+            ])
+        );
+    }
+
+    #[test]
+    fn empty_dir_gives_default_with_notice() {
+        let dir = temp_dir("empty");
         let (d, notice) = load_or_recover(&dir);
         assert!(d.days.is_empty());
         assert!(notice.is_some());

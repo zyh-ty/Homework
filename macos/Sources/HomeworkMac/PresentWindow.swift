@@ -61,6 +61,14 @@ struct PresentWindow: View {
             }
         }
         .onExitCommand { state.stopPresenting() }
+        .overlay(alignment: .bottom) {
+            if let toast = state.toast {
+                ToastView(toast: toast, scale: 1.6)
+                    .padding(.bottom, 56)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .id(toast.id)
+            }
+        }
         .onDisappear { state.isPresenting = false }
     }
 

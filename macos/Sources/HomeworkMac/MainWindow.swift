@@ -182,23 +182,10 @@ struct MainWindow: View {
     @ViewBuilder
     private var toastOverlay: some View {
         if let toast = state.toast {
-            HStack(spacing: 8) {
-                if let symbol = toast.symbol {
-                    Image(systemName: symbol)
-                }
-                Text(toast.text)
-                    .lineLimit(2)
-            }
-            .font(.system(size: 12.5, weight: .medium))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(UI.cardStroke, lineWidth: 0.8))
-            .shadow(color: .black.opacity(0.16), radius: 14, y: 4)
-            .padding(.bottom, 26)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .id(toast.id)
-            .allowsHitTesting(false)
+            ToastView(toast: toast)
+                .padding(.bottom, 26)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(toast.id)
         }
     }
 }

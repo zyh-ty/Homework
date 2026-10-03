@@ -115,6 +115,29 @@ struct KeyCap: View {
     }
 }
 
+/// 底部提示条：主窗口与放映窗口共用（放映时放大，投影也看得清）
+struct ToastView: View {
+    let toast: Toast
+    var scale: CGFloat = 1
+
+    var body: some View {
+        HStack(spacing: 8 * scale) {
+            if let symbol = toast.symbol {
+                Image(systemName: symbol)
+            }
+            Text(toast.text)
+                .lineLimit(2)
+        }
+        .font(.system(size: 12.5 * scale, weight: .medium))
+        .padding(.horizontal, 14 * scale)
+        .padding(.vertical, 9 * scale)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(UI.cardStroke, lineWidth: 0.8))
+        .shadow(color: .black.opacity(0.2), radius: 14, y: 4)
+        .allowsHitTesting(false)
+    }
+}
+
 /// 卡片标题栏：图标 + 标题 + 右侧提示
 struct CardHeader: View {
     let symbol: String

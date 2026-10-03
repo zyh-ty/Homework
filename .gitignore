@@ -1,12 +1,15 @@
-node_modules/
-dist/
-target/
+# 构建产物
+.build/
+build/
+DerivedData/
+xcuserdata/
+*.dSYM
+*.ipa
+
+# 运行期数据与出图
 每日作业数据/
 家庭作业_*.png
 每日作业配置.ini
-每日作业.exe
-macos/.build/
-macos/build/
-HomeworkApp/.build/
+
+# 杂项
 .DS_Store
-src-tauri/gen/schemas/macOS-schema.json

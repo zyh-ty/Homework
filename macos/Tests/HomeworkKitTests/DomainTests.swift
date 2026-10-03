@@ -326,21 +326,61 @@ private func nationalDayTable() -> HolidayTable {
     #expect(Schedule.prevSchoolDay(data, "2026-10-08", holidays: table) == "2026-09-30")
     // 9/30 的下一上学日直接跳到 10/8（10/1-10/7 全放假）
     #expect(Schedule.nextSchoolDay(data, "2026-09-30", holidays: table) == "2026-10-08")
-    // 10/10（周六）是调休上课日 → 算上学日
-    #expect(Schedule.isSchoolDay(data, "2026-10-10", holidays: table))
-    #expect(Schedule.nextSchoolDay(data, "2026-10-08", holidays: table) == "2026-10-09")
-    // 假期结束后的周五下午，下一上学日是调休的周六
-    #expect(Schedule.nextSchoolDay(data, "2026-10-09", holidays: table) == "2026-10-10")
+    // 10/10（周六）是日历上的调休上课日，但老师还没建这一天 → 不凭空算上学日
+    #expect(Schedule.isSchoolDay(data, "2026-10-10", holidays: table) == false)
+    #expect(Schedule.nextSchoolDay(data, "2026-10-09", holidays: table) == "2026-10-12")
+    // 老师建了这一天 → 立刻算上学日
+    var withMakeup = data
+    withMakeup.days["2026-10-10"] = Day()
+    #expect(Schedule.isSchoolDay(withMakeup, "2026-10-10", holidays: table))
+    #expect(Schedule.nextSchoolDay(withMakeup, "2026-10-09", holidays: table) == "2026-10-10")
 }
 
-@Test func viewModelCarriesDayKindAndBlanksHolidaySchedule() {
+/// 用户数据优先：老师给法定假期里的某天建了作业，就不该被日历当成休息日跳过
+@Test func userDayBeatsCalendarHoliday() {
+    let table = nationalDayTable()
+    var data = AppData()
+    // 假期里的 10/1（周四）没建过 → 不上学，但课表照模版显示（与原版一致）
+    #expect(Schedule.isSchoolDay(data, "2026-10-01", holidays: table) == false)
+    let holidayVm = Schedule.viewModel(data, date: "2026-10-01", submitOnly: false, holidays: table)
+    #expect(holidayVm.dayKind == .holiday(name: "国庆节"))
+    #expect(holidayVm.slots[0].name == "政治")
+
+    // 老师给 10/1 建了作业 → 立刻算上学日、算自安排的调休，建议也跟着这天的课表
+    data.days["2026-10-01"] = Day()
+    #expect(Schedule.isSchoolDay(data, "2026-10-01", holidays: table))
+    let userDays = Set(data.days.keys)
+    #expect(HolidayRules.classify("2026-10-01", table: table, userDays: userDays) == .makeup(name: "调休"))
+    let built = Schedule.viewModel(data, date: "2026-10-01", submitOnly: false, holidays: table)
+    #expect(built.dayKind == .makeup(name: "调休"))
+    #expect(Schedule.homeworkSuggestions(built.slots).first == "政治")
+    // 10/5 往前找上学日：10/4、10/3、10/2 都是假期且没建过 → 回到建过的 10/1
+    #expect(Schedule.prevSchoolDay(data, "2026-10-05", holidays: table) == "2026-10-01")
+}
+
+/// 调休日的默认课表来源：往前找最近的上学日（原来传 nil 会拿到空课表）
+@Test func makeupDayDefaultsToPreviousSchoolDayTimetable() {
+    let table = nationalDayTable()
+    let data = AppData()
+    // 10/10（周六调休）默认按 10/9（周五）的课表
+    #expect(Schedule.defaultCopyFrom(data, date: "2026-10-10", holidays: table) == 4)
+    var withMakeup = data
+    withMakeup.days["2026-10-10"] = Day(copiedFromWeekday: Schedule.defaultCopyFrom(
+        data, date: "2026-10-10", holidays: table
+    ))
+    let slots = Schedule.effectiveSchedule(withMakeup, date: "2026-10-10")
+    #expect(slots[0].name == "语文", "周五第一节是语文")
+    #expect(slots.contains { !$0.name.isEmpty }, "调休日不再是空课表")
+}
+
+@Test func viewModelCarriesDayKindOnHoliday() {
     let table = nationalDayTable()
     let data = AppData()
     let holiday = Schedule.viewModel(data, date: "2026-10-01", submitOnly: false, holidays: table)
     #expect(holiday.dayKind == .holiday(name: "国庆节"))
     #expect(holiday.dayKind.isRestDay)
     #expect(holiday.dayKind.greeting == "国庆快乐")
-    #expect(holiday.slots.allSatisfy { $0.name.isEmpty }, "法定节假日不显示课表")
+    #expect(holiday.slots[0].name == "政治", "法定节假日仍按模版显示当天课表（与原版一致）")
 
     let weekend = Schedule.viewModel(data, date: "2026-10-17", submitOnly: false, holidays: table)
     #expect(weekend.dayKind == .weekend)

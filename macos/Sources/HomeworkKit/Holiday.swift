@@ -93,7 +93,7 @@ public enum DayKind: Hashable, Sendable {
         switch self {
         case .holiday(let name): return "\(name)假期 · 今天没有作业"
         case .weekend: return "今天没有课，好好放松"
-        case .makeup(let name): return "\(name) · 调休上课日"
+        case .makeup(let name): return name == "调休" ? "调休上课日" : "\(name) · 调休上课日"
         case .school: return nil
         }
     }
@@ -156,18 +156,21 @@ public enum HolidayRules {
         }
     }
 
-    /// 用日历（+ 用户自己添加的调休日）判断某天性质
+    /// 用日历（+ 用户自己添加的调休日）判断某天性质。
+    /// 用户建过这一天优先：休息日（法定假期 / 周末）也按「自己安排的调休上课日」看待。
     public static func classify(_ date: String, table: HolidayTable?, userDays: Set<String> = []) -> DayKind {
-        if let entry = table?.entry(on: date) {
-            if entry.isWorkday { return .makeup(name: entry.name) }
-            if entry.isHoliday { return .holiday(name: entry.name) }
-        }
         let weekday = Schedule.weekdayIndex(date) ?? 0
-        if weekday >= 5 {
-            // 用户手动加了这一天的条目的周末 = 自己安排的调休上学日
-            return userDays.contains(date) ? .makeup(name: "调休") : .weekend
+        if userDays.contains(date) {
+            if table?.entry(on: date)?.isHoliday == true || weekday >= 5 {
+                return .makeup(name: "调休")
+            }
+            return .school
         }
-        return .school
+        if let entry = table?.entry(on: date) {
+            if entry.isHoliday { return .holiday(name: entry.name) }
+            if entry.isWorkday { return .makeup(name: entry.name) }
+        }
+        return weekday >= 5 ? .weekend : .school
     }
 
     /// 未来若干天里「日历说是调休上课、但还没在软件里建过」的日期

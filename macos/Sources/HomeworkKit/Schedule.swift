@@ -162,14 +162,22 @@ public enum Schedule {
         stepSchoolDay(data, date, 1, holidays: holidays)
     }
 
-    /// 上学日 = 非节假日 且（工作日 或 调休上课日 或 用户自己建过这一天）
+    /// 上学日判定：**老师建过这一天 → 一定算上学日**（用户数据优先）；
+    /// 否则日历判为放假 → 不算；再否则工作日（周一至周五）算。
+    /// 日历只能「扣掉」假期，不能凭空添加课：调休上课日要老师自己建天
+    /// （编辑页横幅提醒 + 一键加入），加入后自然生效。
     public static func isSchoolDay(_ data: AppData, _ date: String, holidays: HolidayTable? = nil) -> Bool {
-        if let entry = holidays?.entry(on: date) {
-            if entry.isWorkday { return true }
-            if entry.isHoliday { return false }
-        }
-        let weekday = weekdayIndex(date) ?? 0
-        return weekday < 5 || data.days[date] != nil
+        if data.days[date] != nil { return true }
+        if holidays?.entry(on: date)?.isHoliday == true { return false }
+        return (weekdayIndex(date) ?? 0) < 5
+    }
+
+    /// 调休日的默认课表来源：往前找最近的一个上学日，按它的星期几上课。
+    /// 原来传 nil 会让调休日取当天（周六/周日）的空模版，得到一张空课表。
+    public static func defaultCopyFrom(_ data: AppData, date: String, holidays: HolidayTable? = nil) -> Int? {
+        let previous = prevSchoolDay(data, date, holidays: holidays)
+        guard previous != date else { return nil }
+        return weekdayIndex(previous)
     }
 
     private static func stepSchoolDay(_ data: AppData, _ from: String, _ step: Int, holidays: HolidayTable?) -> String {
@@ -243,7 +251,7 @@ public enum Schedule {
             weekday: weekdayCN(displayDate),
             submitOnly: submitOnly,
             homeworkDate: date,
-            slots: kind.isRestDay && kind.holidayName != nil ? Array(repeating: Slot(name: "", changed: false), count: PERIODS) : displaySlots,
+            slots: displaySlots,
             announcements: data.announcements.filter(announcementVisible),
             homework: presentHomework(data, homeworkDate: date, submitOnly: submitOnly),
             speeches: day?.speeches ?? [],

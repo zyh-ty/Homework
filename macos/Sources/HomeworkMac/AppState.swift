@@ -156,13 +156,13 @@ final class AppState {
         ).filter { !dismissedMakeupReminders.contains($0) }
     }
 
-    /// 调休提醒：一键新增这一天并按「上周几的课」猜一个默认值
+    /// 调休提醒：一键新增这一天，并按「最近一个上学日的星期几」猜一个默认课表来源
     func adoptMakeupDay(_ date: String) {
         guard data.days[date] == nil else { return }
         do {
-            try addDay(date, copiedFrom: nil)
+            try addDay(date, copiedFrom: Schedule.defaultCopyFrom(data, date: date, holidays: holidays.table))
             setDate(date, submitOnly: false)
-            show("\(Schedule.dotDate(date)) 已加入，请核对课表", symbol: "arrow.triangle.2.circlepath")
+            show("\(Schedule.dotDate(date)) 已加入，请在课表卡核对上哪天的课", symbol: "arrow.triangle.2.circlepath")
         } catch {
             show("新增失败：\(error.localizedDescription)", symbol: "exclamationmark.triangle.fill")
         }

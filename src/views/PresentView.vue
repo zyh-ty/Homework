@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { store, view, vm, refreshVm, showToast } from "../api";
-import { generateTodayImage } from "../image";
+import { generateImage } from "../image";
 import { layout, W, H } from "../layout";
 import { renderCmds } from "../render-canvas";
 
@@ -53,7 +53,7 @@ async function toggleMode() {
 
 function exportImage() {
   closeMenu();
-  void generateTodayImage(true);
+  void generateImage(true);
 }
 
 function onExit() {

@@ -90,7 +90,8 @@ export const cmd = {
   saveNow: () => invoke("save_now"),
   frontendReady: () => invoke("frontend_ready"),
   setPresenting: (on: boolean) => invoke("set_presenting", { on }),
-  exportImage: (bytes: Uint8Array) => invoke<string>("export_image", { bytes }),
+  exportImage: (bytes: Uint8Array, date: string) =>
+    invoke<string>("export_image", { bytes, date }),
   getLaunchView: () => invoke<LaunchView>("get_launch_view"),
   getWeek: (monday: string) => invoke<WeekOverview>("get_week", { monday }),
 };

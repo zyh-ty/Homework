@@ -245,21 +245,13 @@ fn set_presenting(window: Window, state: State<Arc<Shared>>, on: bool) -> Result
 }
 
 #[tauri::command]
-fn export_image(app: AppHandle, state: State<Arc<Shared>>, bytes: Vec<u8>) -> Result<String, String> {
-    let today = schedule::today_string();
-    let dir = store::exe_dir();
-    let name = format!("家庭作业_{today}.png");
-    let path = dir.join(&name);
-    std::fs::write(&path, &bytes).map_err(|e| format!("写入图片失败：{e}"))?;
-    if let Ok(rd) = std::fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            let fname = e.file_name().to_string_lossy().to_string();
-            if fname.starts_with("家庭作业_") && fname.ends_with(".png") && fname != name {
-                let _ = std::fs::remove_file(p);
-            }
-        }
-    }
+fn export_image(
+    app: AppHandle,
+    state: State<Arc<Shared>>,
+    bytes: Vec<u8>,
+    date: String,
+) -> Result<String, String> {
+    let path = store::write_image(&store::exe_dir(), &date, &bytes)?;
     {
         let mut inner = state.inner.lock().unwrap();
         inner.image_dirty = false;

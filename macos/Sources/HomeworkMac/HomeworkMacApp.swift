@@ -58,7 +58,7 @@ struct HomeworkMacApp: App {
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(AppState.shared.isPresenting)
             Divider()
-            Button("生成作业图片") { AppState.shared.exportImage(manual: true, forToday: true) }
+            Button("生成这一天的作业图片") { AppState.shared.exportImage(manual: true) }
                 .keyboardShortcut("d", modifiers: .command)
             Button("立即保存") { AppState.shared.saveNow(); AppState.shared.show("已保存", symbol: "checkmark.circle.fill") }
                 .keyboardShortcut("s", modifiers: .command)

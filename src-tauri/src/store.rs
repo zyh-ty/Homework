@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 const INI_NAME: &str = "每日作业配置.ini";
 const DEFAULT_DIR: &str = "每日作业数据";
 const DATA_FILE: &str = "data.json";
+const IMAGE_PREFIX: &str = "家庭作业_";
 const MAX_BACKUPS: usize = 30;
 
 pub fn exe_dir() -> PathBuf {
@@ -168,6 +169,27 @@ pub fn reset_ini() {
     let _ = fs::remove_file(ini_path());
 }
 
+/// 写出「家庭作业_<date>.png」并删除同目录其他日期的家庭作业图片。
+/// 文件名用页面日（作业所属的那一天），只保留一份。
+pub fn write_image(dir: &Path, date: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    if crate::schedule::parse_date(date).is_none() {
+        return Err(format!("日期不合法：{date}"));
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
+    let name = format!("{IMAGE_PREFIX}{date}.png");
+    let path = dir.join(&name);
+    fs::write(&path, bytes).map_err(|e| format!("写入图片失败：{e}"))?;
+    if let Ok(rd) = fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let fname = e.file_name().to_string_lossy().to_string();
+            if fname.starts_with(IMAGE_PREFIX) && fname.ends_with(".png") && fname != name {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +335,24 @@ mod tests {
                 {"id": 2, "text": "校服征订本周截止", "done": true}
             ])
         );
+    }
+
+    /// 出图只保留一份，文件名用传入的页面日（与 Swift 侧 exportImageCleansOtherDays 对称）
+    #[test]
+    fn image_written_and_other_days_pruned() {
+        let dir = temp_dir("image");
+        write_image(&dir, "2026-09-30", &[1, 2, 3]).unwrap();
+        let path = write_image(&dir, "2026-10-01", &[4, 5, 6]).unwrap();
+        assert_eq!(path.file_name().unwrap(), "家庭作业_2026-10-01.png");
+        let files: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(IMAGE_PREFIX))
+            .collect();
+        assert_eq!(files, vec!["家庭作业_2026-10-01.png".to_string()]);
+        assert!(write_image(&dir, "../坏日期", &[7]).is_err(), "非法日期应拒绝");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

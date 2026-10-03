@@ -15,7 +15,7 @@ import {
 } from "./api";
 import { loadBadge } from "./render-canvas";
 import { SECTION_KEYS, focusSection, moveRow } from "./nav";
-import { generateTodayImage } from "./image";
+import { generateImage } from "./image";
 import { addDays } from "./utils";
 import type { LaunchView } from "./types";
 import EditView from "./views/EditView.vue";
@@ -125,7 +125,7 @@ function onKey(e: KeyboardEvent) {
       void cmd.saveNow().then(() => showToast("已保存"));
     } else if (k === "d") {
       e.preventDefault();
-      void generateTodayImage(true);
+      void generateImage(true);
     } else if (k === "t") {
       e.preventDefault();
       void goToday();
@@ -160,7 +160,7 @@ onMounted(async () => {
   const [launch] = await Promise.all([
     initApi(() => {}),
     loadBadge(),
-    listen("auto-image-request", () => void generateTodayImage(false)),
+    listen("auto-image-request", () => void generateImage(false)),
   ]);
   lastLaunch = launch;
   timer = setInterval(() => void tickRelocate(), 30_000);

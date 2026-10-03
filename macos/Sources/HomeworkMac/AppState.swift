@@ -412,8 +412,11 @@ final class AppState {
 
     // MARK: - 出图
 
+    /// 自动出图固定「今天 · 全部」；手动出图导出当前屏幕所见（页面日 + 当前模式）
     func exportImage(manual: Bool, forToday: Bool = false) {
-        let vm = forToday ? Schedule.viewModel(data, date: today, submitOnly: false) : viewModel
+        let vm = forToday
+            ? Schedule.viewModel(data, date: today, submitOnly: false, holidays: holidays.table)
+            : viewModel
         exportImage(vm: vm, manual: manual)
     }
 
@@ -421,7 +424,8 @@ final class AppState {
         guard !exporting else { return }
         exporting = true
         defer { exporting = false }
-        let date = vm.displayDate
+        // 文件名用页面日（作业所属的那一天），「仅要交」时画面日期是下一上学日，不作为文件名
+        let date = vm.date
         let png = MainActor.assumeIsolated {
             SlideRenderer.png(vm: vm, showBadge: data.settings.showBadge)
         }
@@ -465,7 +469,7 @@ final class AppState {
         let interval = TimeInterval(max(10, data.settings.imageIntervalSecs))
         guard Date().timeIntervalSince(lastImage) >= interval else { return }
         lastImage = Date()
-        exportImage(manual: false)
+        exportImage(manual: false, forToday: true)
     }
 
     private func tickRelocate() {

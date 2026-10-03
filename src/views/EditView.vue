@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { store, view, vm, refreshVm, openPage } from "../api";
-import { generateTodayImage } from "../image";
+import { generateImage } from "../image";
 import { parseDate } from "../utils";
 import AnnouncementCard from "../components/AnnouncementCard.vue";
 import HomeworkCard from "../components/HomeworkCard.vue";
@@ -62,7 +62,7 @@ const mode = computed({
         <button title="Ctrl+," @click="openPage('settings')">设置</button>
         <span class="divider" />
         <button title="Ctrl+T" @click="emit('today')">今天</button>
-        <button title="Ctrl+D：生成今天的家庭作业图片" @click="generateTodayImage(true)">出图</button>
+        <button title="Ctrl+D：生成当前这一天的家庭作业图片" @click="generateImage(true)">出图</button>
         <button class="primary present" title="F5" @click="emit('present')">▶ 放映</button>
       </div>
     </header>

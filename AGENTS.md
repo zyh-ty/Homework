@@ -17,7 +17,7 @@ src/
   draft.ts     当前编辑天的草稿（watch view.date 重载，300ms 防抖 set_day）；ALL_SUBJECTS
   layout.ts    排版引擎：ViewModel → DrawCmd[]（1920×1080 设计画布，与渲染无关）
   render-canvas.ts  DrawCmd → Canvas2D（放映屏幕与导出 PNG 共用，严格 WYSIWYG）
-  image.ts     生成「今天·全部」画面 → PNG 字节 → export_image 命令
+  image.ts     出图：自动出「今天·全部」，手动出当前屏幕所见；文件名用页面日
   views/EditView.vue     编辑页（工具栏/天数导航/显示滑块/卡片）
   views/PresentView.vue  放映页（等比缩放 + 黑边 letterbox，禁切换；右键菜单可切模式/出图/退出）
   views/SettingsView.vue 设置整页：常规 / 天数管理 / 快捷键 / 关于
@@ -82,9 +82,12 @@ render-canvas.ts 负责屏幕与导出两条路径。新增视觉元素只改 la
    （于是画面显示今天、作业是上一日勾了明天交的）；晚于 → 今天 + 全部。前端 30s tick，
    仅在用户未手动偏离自动定位时跟随跨越；Ctrl+T 重新回到自动定位结果。
 7. 演讲全空 → 放映页演讲区显示「⚠ 演讲提醒未填写」，编辑页顶部红色横幅。
-8. 出图：后台线程在「距上次 > image_interval_secs 且 image_dirty 且非放映中」时向前端发
-   `auto-image-request`；前端渲染今天「全部」画面回传字节 → 写 `exe同级/家庭作业_今天.png` 并删除
-   其他日期的家庭作业图片。Ctrl+D/工具栏可手动出图。
+8. 出图（两端语义一致）：**自动**出图固定「今天 · 全部」——后台线程在「距上次 > image_interval_secs
+   且 image_dirty 且非放映中」时向前端发 `auto-image-request`，渲染今天「全部」画面回传字节 → 写
+   `exe同级/家庭作业_<今天>.png`。**手动**出图（Ctrl+D / 工具栏 / 放映右键）导出**当前屏幕所见**
+   （页面日 + 当前模式，含「仅要交」过滤），文件名用**页面日**而不是画面日期——「仅要交」时画面
+   显示的是下一上学日，但文件属于正在编辑的那一天。两种情况都删除其他日期的家庭作业图片，只留一份。
+   文件名路径与日期校验由 `store::write_image` 负责（日期非法直接拒绝）。
 9. 放映中锁定天数切换；F5/Esc 退出。工具栏不再有「新增天数/删除天数」，改到设置页天数管理。
    编辑页键盘操作（全局在 App.vue，条目级在各卡片，导航工具在 nav.ts）：`Alt+1~4` 跳到
    公告/作业/演讲/课表的第一项（靠 `[data-nav]` 的 DOM 顺序，也就是阅读顺序）；`Enter` 在当前
@@ -106,7 +109,7 @@ render-canvas.ts 负责屏幕与导出两条路径。新增视觉元素只改 la
 ```bash
 npm install
 npm run build              # 仅前端 → dist/
-cd src-tauri && cargo test # 27 个单元测试（store/schedule，含 fixtures/ 共享契约）
+cd src-tauri && cargo test # 28 个单元测试（store/schedule，含 fixtures/ 共享契约）
 npm run tauri build        # 完整发布构建 → src-tauri/target/release/homework-client.exe
 cp src-tauri/target/release/homework-client.exe 每日作业.exe
 npm run tauri dev          # 开发模式

@@ -159,11 +159,11 @@ struct MainWindow: View {
             .help("回到今天（⌘T）")
 
             Button {
-                state.exportImage(manual: true, forToday: true)
+                state.exportImage(manual: true)
             } label: {
                 Label("出图", systemImage: "square.and.arrow.down")
             }
-            .help("生成家庭作业图片（⌘D）")
+            .help("生成当前这一天的家庭作业图片（⌘D）")
 
             Button {
                 state.startPresenting()

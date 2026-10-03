@@ -9,3 +9,4 @@ macos/.build/
 macos/build/
 HomeworkApp/.build/
 .DS_Store
+src-tauri/gen/schemas/macOS-schema.json

@@ -13,6 +13,8 @@ open build/每日作业.app
 ./scripts/build-app.sh debug   # 调试构建
 ```
 
+`build-app.sh` 走的是 xcodebuild（见下），产物与 Xcode 里 ⌘R 出来的完全一致。
+
 ### Xcode 工程
 
 `project.yml` 是工程定义的唯一来源，用 xcodegen 生成 `HomeworkMac.xcodeproj`
@@ -24,11 +26,18 @@ cd macos && xcodegen generate  # 改了 project.yml 或**新增/删除源文件*
 open HomeworkMac.xcodeproj     # ⌘R 运行；测测试用 HomeworkKit scheme（⌘U）
 ```
 
-- `Support/Info.plist` 与 `Support/HomeworkMac.entitlements` 也由 xcodegen 生成，别手改。
-- 两条构建路径共用 `Sources/`：Xcode 工程给能力/权限/公证用，`swift test` 与
-  `build-app.sh` 给命令行与打包用；改完两边都过一遍。
+- **Info.plist / entitlements / 资源 / 版本号只有一处定义**：`project.yml` 的 `info.properties`
+  与 `entitlements.properties`。`Support/`、`HomeworkMac.xcodeproj/` 都是 xcodegen 生成物，
+  已加入 `.gitignore`，**别手改、也别提交**（删掉后用 `xcodegen generate` 能原样重建）。
+- 构建路径只有一条：`build-app.sh` 也是 `xcodebuild -scheme HomeworkApp`，
+  只是先 `CODE_SIGNING_ALLOWED=NO` 编译、再用 `codesign` 按 `SIGN_IDENTITY` 签名
+  （含 hardened runtime 与 entitlements），因此不依赖 Xcode 里的团队配置。
+- `swift test` 仍走 SwiftPM（纯逻辑层单测，最快）；`swift build` 仍可用于快速编译检查。
 - Xcode 工程里 app target 名为 `HomeworkApp`（产物仍是 `每日作业.app`）：
   叫 `HomeworkMac` 会和 SwiftPM 的可执行 target 撞名，Xcode 会把 scheme 解析到包那边去。
+- 资源位置在两条路径下不同，`Badge.locate()` 用 `#if SWIFT_PACKAGE` 兼容：
+  Xcode 把 `badge.png` 直接放进 `Contents/Resources/`，SwiftPM 则包成
+  `HomeworkMac_HomeworkMac.bundle`（已用导出 PNG 验证两条路径都能画出班徽）。
 
 打包 DMG（带背景图、图标位置、拖拽安装；自动挑钥匙串里的 Apple Development 证书签名）：
 

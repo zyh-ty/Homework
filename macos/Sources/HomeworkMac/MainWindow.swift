@@ -39,8 +39,9 @@ struct MainWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(UI.canvas)
         }
+        .background(GlassWindowBackground())
+        .glassWindow()
         .navigationTitle(state.page.title)
         .toolbar { toolbarContent }
         .overlay(alignment: .bottom) { toastOverlay }

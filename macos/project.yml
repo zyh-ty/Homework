@@ -42,7 +42,7 @@ targets:
         LSApplicationCategoryType: public.app-category.education
         NSHighResolutionCapable: true
         NSSupportsAutomaticTermination: false
-        NSHumanReadableCopyright: 南京市鼓楼区班级「每日作业」
+        NSHumanReadableCopyright: Proudly made by tyc
         NSCalendarsUsageDescription: 读取系统日历中的「中国大陆节假日」，用于识别法定节假日与调休上课日
         NSCalendarsFullAccessUsageDescription: 读取系统日历中的「中国大陆节假日」，用于识别法定节假日与调休上课日
     entitlements:

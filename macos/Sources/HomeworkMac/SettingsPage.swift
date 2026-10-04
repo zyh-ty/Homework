@@ -220,7 +220,6 @@ struct SettingsPage: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background(UI.canvas)
         .contentMargins(.top, 18, for: .scrollContent)
         .onAppear(perform: load)
         .confirmationDialog(

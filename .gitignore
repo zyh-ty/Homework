@@ -13,3 +13,7 @@ xcuserdata/
 
 # 杂项
 .DS_Store
+# xcodegen 生成物（唯一来源是 macos/project.yml）
+HomeworkMac.xcodeproj/
+Support/
+.swiftpm/

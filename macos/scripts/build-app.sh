@@ -5,66 +5,65 @@
 # 环境变量：
 #   ARCHS=universal|native            默认 universal（Intel + Apple Silicon）
 #   SIGN_IDENTITY=auto|"证书名"|-     默认 auto：挑钥匙串里的 Apple Development，没有则 ad-hoc
-#   VERSION=1.0                       写进 Info.plist 的版本号
+#   VERSION=1.0                       写进 app 的版本号
+#
+# 单一构建路径：xcodebuild 读 macos/project.yml 生成的工程。
+# Info.plist / entitlements / 资源 / 版本号都来自 project.yml（Support/ 由 xcodegen 生成），
+# 这里不再手写第二份。签名交给脚本：先用 CODE_SIGNING_ALLOWED=NO 编译，
+# 再按 SIGN_IDENTITY 用 codesign 签（不依赖 Xcode 里的团队配置）。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-CONFIG="${1:-release}"
+
+CONFIG_INPUT="${1:-release}"
+case "$CONFIG_INPUT" in
+    release|Release) XC_CONFIG=Release ;;
+    debug|Debug)     XC_CONFIG=Debug ;;
+    *) echo "未知配置：${CONFIG_INPUT}（用 release 或 debug）"; exit 1 ;;
+esac
+
 APP_NAME="每日作业"
-BUNDLE_ID="local.zyh.homework"
 VERSION="${VERSION:-1.0}"
 ARCHS="${ARCHS:-universal}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-auto}"
 
-BUILD_ARGS=(-c "$CONFIG")
 if [ "$ARCHS" = "universal" ]; then
-    BUILD_ARGS+=(--arch arm64 --arch x86_64)
+    XC_ARCHS="arm64 x86_64"
+else
+    XC_ARCHS="$(uname -m)"
 fi
 
-echo "==> swift build ${BUILD_ARGS[*]}"
-swift build "${BUILD_ARGS[@]}"
-BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
+command -v xcodegen >/dev/null \
+    || { echo "需要 xcodegen：brew install xcodegen（project.yml 是工程定义的唯一来源）"; exit 1; }
+command -v xcodebuild >/dev/null \
+    || { echo "需要 Xcode 命令行工具：xcode-select --install"; exit 1; }
+
+# 每次都重新生成：xcodegen 按目录收集源文件，新增/删除 .swift 后不重跑就会漏文件
+echo "==> xcodegen generate"
+xcodegen generate --quiet
+
+DERIVED="build/xcode"
+echo "==> xcodebuild -configuration $XC_CONFIG ARCHS=\"$XC_ARCHS\""
+xcodebuild \
+    -project HomeworkMac.xcodeproj \
+    -scheme HomeworkApp \
+    -configuration "$XC_CONFIG" \
+    -derivedDataPath "$DERIVED" \
+    ARCHS="$XC_ARCHS" \
+    ONLY_ACTIVE_ARCH=NO \
+    MARKETING_VERSION="$VERSION" \
+    CODE_SIGNING_ALLOWED=NO \
+    build \
+    | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+
+BUILT="$(find "$DERIVED/Build/Products/$XC_CONFIG" -maxdepth 1 -name "*.app" -print -quit)"
+[ -n "$BUILT" ] || { echo "没找到构建产物（$DERIVED/Build/Products/$XC_CONFIG/*.app）"; exit 1; }
 
 APP="$PWD/build/$APP_NAME.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-cp "$BIN_DIR/HomeworkMac" "$APP/Contents/MacOS/HomeworkMac"
-chmod +x "$APP/Contents/MacOS/HomeworkMac"
-
-# 资源（班徽 / 图标）
-cp Sources/HomeworkMac/Resources/badge.png "$APP/Contents/Resources/badge.png"
-if [ -d "$BIN_DIR/HomeworkMac_HomeworkMac.bundle" ]; then
-    cp -R "$BIN_DIR/HomeworkMac_HomeworkMac.bundle" "$APP/Contents/Resources/"
-fi
-if [ -f Resources/AppIcon.icns ]; then
-    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-fi
-
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key><string>HomeworkMac</string>
-    <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleName</key><string>$APP_NAME</string>
-    <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>LSMinimumSystemVersion</key><string>26.0</string>
-    <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>NSCalendarsUsageDescription</key><string>读取系统日历中的「中国大陆节假日」，用于识别法定节假日与调休上课日</string>
-    <key>NSCalendarsFullAccessUsageDescription</key><string>读取系统日历中的「中国大陆节假日」，用于识别法定节假日与调休上课日</string>
-    <key>NSSupportsAutomaticTermination</key><false/>
-    <key>NSHumanReadableCopyright</key><string>南京市鼓楼区班级「每日作业」</string>
-    <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-</dict>
-</plist>
-PLIST
+mkdir -p "$(dirname "$APP")"
+# ditto 保留 bundle 结构与资源（cp -R 会丢扩展属性）
+ditto "$BUILT" "$APP"
 
 if [ "$SIGN_IDENTITY" = "auto" ]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
@@ -72,14 +71,28 @@ if [ "$SIGN_IDENTITY" = "auto" ]; then
     [ -n "$SIGN_IDENTITY" ] || SIGN_IDENTITY="-"
 fi
 
+SIGN_OPTS=()
 if [ "$SIGN_IDENTITY" = "-" ]; then
     echo "==> ad-hoc 签名（钥匙串里没有 Apple Development 证书）"
 else
-    echo "==> 签名：$SIGN_IDENTITY"
+    echo "==> 签名：${SIGN_IDENTITY}（启用 hardened runtime）"
+    SIGN_OPTS+=(--options runtime)
 fi
-codesign --force --sign "$SIGN_IDENTITY" \
-    "$APP/Contents/Resources/HomeworkMac_HomeworkMac.bundle" >/dev/null 2>&1 || true
-codesign --force --sign "$SIGN_IDENTITY" "$APP"
+
+# 先签内嵌的 bundle（SwiftPM 资源包），再签整包
+for nested in "$APP/Contents/Resources"/*.bundle; do
+    [ -d "$nested" ] || continue
+    codesign --force "${SIGN_OPTS[@]}" --sign "$SIGN_IDENTITY" "$nested" >/dev/null 2>&1 || true
+done
+
+ENTITLEMENTS="Support/HomeworkMac.entitlements"
+if [ -f "$ENTITLEMENTS" ]; then
+    codesign --force "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP"
+else
+    codesign --force "${SIGN_OPTS[@]}" --sign "$SIGN_IDENTITY" "$APP"
+fi
+
 codesign --verify --strict "$APP" && echo "==> 签名校验通过"
-lipo -archs "$APP/Contents/MacOS/HomeworkMac" | sed 's/^/==> 架构：/'
+lipo -archs "$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")" \
+    | sed 's/^/==> 架构：/'
 echo "==> 已生成 $APP"

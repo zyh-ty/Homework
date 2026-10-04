@@ -39,8 +39,9 @@ struct MainWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(UI.canvas)
         }
+        .background(GlassWindowBackground())
+        .glassWindow()
         .navigationTitle(state.page.title)
         .toolbar { toolbarContent }
         .overlay(alignment: .bottom) { toastOverlay }
@@ -63,7 +64,22 @@ struct MainWindow: View {
     }
 
     private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            SlideView(
+                vm: state.viewModel,
+                showBadge: state.data.settings.showBadge,
+                size: CGSize(width: 140, height: 78.75)
+            )
+            .frame(width: 140, height: 78.75)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.12))
+            )
+            .onDrag { state.slideItemProvider() }
+            .onTapGesture { state.exportImage(manual: true) }
+            .help("拖到微信即可发送这张图；点一下生成图片文件（⌘D）")
+
             HStack(spacing: 6) {
                 Image(systemName: "internaldrive")
                     .font(.system(size: 10))
@@ -158,12 +174,20 @@ struct MainWindow: View {
             }
             .help("回到今天（⌘T）")
 
-            Button {
-                state.exportImage(manual: true)
+            Menu {
+                Button("生成图片") { state.exportImage(manual: true) }
+                Button("复制图片") { state.copySlideImage() }
+                Button("复制文字版") { state.copySlideText() }
+                Divider()
+                Button("分享…") { state.shareSlide() }
+                Button("在访达中显示") { state.revealLastImage() }
+                    .disabled(state.lastExportedImage == nil)
             } label: {
                 Label("出图", systemImage: "square.and.arrow.down")
+            } primaryAction: {
+                state.exportImage(manual: true)
             }
-            .help("生成当前这一天的家庭作业图片（⌘D）")
+            .help("生成当前这一天的家庭作业图片（⌘D）；也可复制图片 / 文字版发群")
 
             Button {
                 state.startPresenting()

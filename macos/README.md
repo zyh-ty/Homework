@@ -7,11 +7,37 @@
 
 ```bash
 cd macos
-swift test                     # 40 个单元测试（课表调度 / 存储 / 节假日 / 编解码契约）
+swift test                     # 66 个单元测试（课表调度 / 存储 / 节假日 / 编解码契约 / 撤销栈 / 文件监听）
 ./scripts/build-app.sh         # 发布构建（universal：Intel + Apple Silicon）→ build/每日作业.app
 open build/每日作业.app
 ./scripts/build-app.sh debug   # 调试构建
 ```
+
+`build-app.sh` 走的是 xcodebuild（见下），产物与 Xcode 里 ⌘R 出来的完全一致。
+
+### Xcode 工程
+
+`project.yml` 是工程定义的唯一来源，用 xcodegen 生成 `HomeworkMac.xcodeproj`
+（app target `HomeworkApp` + 本地 SwiftPM 包 `HomeworkKit`）：
+
+```bash
+brew install xcodegen          # 已装可跳过
+cd macos && xcodegen generate  # 改了 project.yml 或**新增/删除源文件**后都要跑一次
+open HomeworkMac.xcodeproj     # ⌘R 运行；测测试用 HomeworkKit scheme（⌘U）
+```
+
+- **Info.plist / entitlements / 资源 / 版本号只有一处定义**：`project.yml` 的 `info.properties`
+  与 `entitlements.properties`。`Support/`、`HomeworkMac.xcodeproj/` 都是 xcodegen 生成物，
+  已加入 `.gitignore`，**别手改、也别提交**（删掉后用 `xcodegen generate` 能原样重建）。
+- 构建路径只有一条：`build-app.sh` 也是 `xcodebuild -scheme HomeworkApp`，
+  只是先 `CODE_SIGNING_ALLOWED=NO` 编译、再用 `codesign` 按 `SIGN_IDENTITY` 签名
+  （含 hardened runtime 与 entitlements），因此不依赖 Xcode 里的团队配置。
+- `swift test` 仍走 SwiftPM（纯逻辑层单测，最快）；`swift build` 仍可用于快速编译检查。
+- Xcode 工程里 app target 名为 `HomeworkApp`（产物仍是 `每日作业.app`）：
+  叫 `HomeworkMac` 会和 SwiftPM 的可执行 target 撞名，Xcode 会把 scheme 解析到包那边去。
+- 资源位置在两条路径下不同，`Badge.locate()` 用 `#if SWIFT_PACKAGE` 兼容：
+  Xcode 把 `badge.png` 直接放进 `Contents/Resources/`，SwiftPM 则包成
+  `HomeworkMac_HomeworkMac.bundle`（已用导出 PNG 验证两条路径都能画出班徽）。
 
 打包 DMG（带背景图、图标位置、拖拽安装；自动挑钥匙串里的 Apple Development 证书签名）：
 
@@ -58,17 +84,22 @@ Rust 侧 `store::tests::decodes_shared_fixture` 与 Swift 侧 `decodesCanonicalF
 ```
 Sources/HomeworkKit/          纯逻辑（无 UI，可单测）
   Model.swift                 AppData / Day / 公告 / 设置（snake_case，与原版数据文件互通）
-  Schedule.swift              课表合成、上学日推算、建议学科、ViewModel、周总览
+  Schedule.swift              课表合成、上学日推算、建议学科、ViewModel、周总览、早晨分界线时刻
   Store.swift                 数据目录、原子保存、滚动备份、损坏恢复、目录迁移、出图
   Holiday.swift               节假日规则：日历标题解析、问候语、休息日判定、调休提醒
+  History.swift               快照式撤销栈（同一输入框内的连续编辑合并成一步）
+  SlideText.swift             画面内容 → 文字版作业（发群用，样式与放映版式一致）
+  DataFileWatcher.swift       监听数据目录，发现 data.json 被外部改动
 Sources/HomeworkMac/          应用与界面
-  HomeworkMacApp.swift        App/Scene/命令菜单/全局按键/外观
-  AppState.swift              单一状态源：自动保存、自动出图、启动定位、焦点导航
-  MainWindow.swift            侧边栏 + 工具栏 + 提示条
+  HomeworkMacApp.swift        App/Scene/命令菜单（含撤销/重做）/全局按键/外观
+  AppState.swift              单一状态源：撤销栈、自动保存、自动出图、启动定位、外部改动重载
+  Presenter.swift             放映系统状态：禁止休眠、锁定切换、指定屏幕
+  Clipboard.swift             剪贴板（PNG+TIFF / 文本+RTF）、分享面板、文字版富文本
+  MainWindow.swift            侧边栏（含可拖出的缩略图）+ 工具栏 + 提示条
   EditPage.swift              公告 / 作业 / 演讲提醒 / 课表 四张卡片
   WeekPage.swift              本周总览 + 周课表模版编辑
-  SettingsPage.swift          设置（常规 / 天数管理 / 节假日与调休 / 快捷键 / 关于）
-  PresentWindow.swift         放映窗口（全屏、右键菜单、隐藏指针）
+  SettingsPage.swift          设置（常规 / 放映 / 天数管理 / 节假日与调休 / 快捷键 / 关于）
+  PresentWindow.swift         放映窗口（全屏、指定屏幕与热插拔、右键菜单、隐藏指针）
   Slide.swift                 放映画面与 PNG 导出（同一份视图，严格所见即所得）
   HolidayService.swift        EventKit 读取「中国大陆节假日」，缓存到磁盘
   Theme.swift / Badge.swift   配色、卡片样式、班徽墨迹裁剪
@@ -91,14 +122,73 @@ Sources/HomeworkMac/          应用与界面
   - 日历只能「扣掉」假期，不能凭空添加课：调休上课日要你建天（一键加入会默认按最近一个上学日的
     课表填入，之后可在课表卡改成「上周几的课」），在那之前它不参与上一/下一上学日推算。
   - 法定节假日不再清空课表，画面与你数据里的课表模版一致。
+- 原版没有、macOS 版独有的四件事（都只在本机生效，不改变数据契约）：**撤销/重做**、
+  放映期间的**不熄屏/锁定切换/指定屏幕**、**复制图片与文字版/分享/拖拽**、
+  **事件驱动的跨天重算与数据文件外部改动重载**。详见上面的对应小节。
+
+## 放映
+
+放映窗口独立成 Scene，进房即原生全屏；放映期间有三条系统级保障（设置 → 放映，只对本机生效，
+不写进共享数据文件）：
+
+- **不熄屏**：`ProcessInfo.beginActivity(.idleDisplaySleepDisabled)`，投影中途不会黑屏。
+- **锁定切换**：`NSApp.presentationOptions = [.hideDock, .hideMenuBar, .disableProcessSwitching]`，
+  学生碰键盘也切不出去（`⌘⌥Esc` 强制退出保留，ESC / F5 / `⌘.` 退出放映）。
+- **指定屏幕**：接投影后在设置里选定那块屏（或放映窗口右键「放映屏幕」），窗口会挪过去并重新全屏；
+  投影热插拔时自动跟随——新插入的屏接管，拔掉的屏自动退回，指定的屏消失时回落到当前屏幕。
+  设置项的变更立即生效，退出放映（含直接关窗）时全部复原。
+
+## 复制 / 分享 / 拖拽
+
+老师最常用的三条出口（都在工具栏「出图」下拉、`每日作业` 菜单和放映右键菜单里）：
+
+| 动作 | 快捷键 | 说明 |
+| --- | --- | --- |
+| 复制图片 | `⇧⌘C` | 画面 PNG 写进剪贴板（同时给 `public.png` 与 `public.tiff`），直接粘进微信 |
+| 复制文字版 | `⌥⌘C` | 纯文本 + RTF，学科加粗、多条作业带序号、「明天交」跟在条目后 |
+| 分享… | — | `NSSharingServicePicker`：AirDrop / 信息 / 邮件（先落盘成 PNG，AirDrop 要的是文件） |
+
+侧边栏底部的缩略图是**拖拽源**：直接拖进微信窗口即可发送（图片走 `NSItemProvider` 的 PNG 数据，
+不用先去目录里找文件）；点一下等于 `⌘D` 出图。
+
+文字版的内容与放映一致：日期 →【作业】→【演讲提醒】→【公告】，全空时给节日问候或「今天没有作业」；
+课表不进文字版（每周固定，图片里有）。
+
+## 事件驱动与外部改动
+
+没有轮询定时器（早先是 30 秒 relocation tick + 2 秒出图 tick）：
+
+- **跨天**（`NSCalendarDayChanged`）、**合盖唤醒**（`NSWorkspace.didWakeNotification`）、
+  **改时钟/时区**（`NSSystemClockDidChange` / `NSSystemTimeZoneDidChange`）→ 重算「今天」与自动定位。
+- **早晨分界线**只在跨越那一刻重算：按 `Schedule.nextCutoff` 排一个一次性定时（今天还没到就是今天 8:00，
+  过了就是明天 8:00）。
+- **自动出图**改成一次性定时：最后一次编辑满 `image_interval_secs` 秒才出图（放映中不打扰，
+  退出放映时重新排队）。
+- **数据文件外部改动**：监听数据目录（保存是 tmp+rename 原子替换，换的是目录项，所以盯目录），
+  比对 `data.json` 的 inode/大小/修改时间，自己写完调 `acknowledge()` 刷新基线。
+  无未保存改动时自动重载并提示；本机还有未保存改动时**不覆盖**，只提示，可用
+  `文件 › 从磁盘重新载入`（`⌘R`）放弃本机改动载入外部版本。
+
+## 撤销 / 重做
+
+`⌘Z` / `⇧⌘Z`，菜单里带动作名（撤销 编辑作业 / 删除公告 / 删除天数 …）。
+
+- 快照式：整份 `AppData` + 页面日，`UndoHistory` 在 `HomeworkKit` 里（可单测）。
+- 每次变更的收口是 `AppState.touch()`：它保存「变更前」的基线快照，所以视图里任何一处改动都会进历史，
+  不必逐个改动点写反向操作。
+- 同一个输入框内的连续编辑按时间窗（2.5s）合并成一步，换字段、换天、撤销之后立刻断开；
+  输入框名与合并键取自 `currentField`（鼠标点击也会同步），栈深 60。
+- 删除天数、删除公告、删除作业条目都可撤销；换数据目录会清空历史（文件已经搬走了，撤销指针没意义）。
 
 ## 快捷键
 
 | 按键 | 作用 |
 | --- | --- |
 | `F5` / `⌘↩` | 进入放映；放映中 `F5` / `Esc` / `⌘.` 退出 |
+| `⌘Z` / `⇧⌘Z` | 撤销 / 重做 |
+| `⇧⌘C` / `⌥⌘C` | 复制作业图片 / 复制文字版作业 |
 | `⌥1`~`⌥4` | 跳到 公告 / 作业 / 演讲 / 课表 |
 | `⌥↑` `⌥↓` | 在条目之间上下切换 |
 | `↩` | 新建下一条；`⌃↩` 标记当前条目 |
 | `←` `→` | 切换上一天 / 下一天 |
-| `⌘T` `⌘D` `⌘S` `⌘K` `⌘,` | 今天 / 出图 / 保存 / 课表总览 / 设置 |
+| `⌘T` `⌘D` `⌘S` `⌘R` `⌘K` `⌘,` | 今天 / 出图 / 保存 / 重新载入 / 课表总览 / 设置 |

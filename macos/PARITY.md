@@ -98,18 +98,30 @@ A 版 toast 压在黑幕上可见（`App.vue:193`、`style.css:148-160`）；B �
 | 天数管理入口 | 仅设置页 | 设置页 + 编辑页横幅 + 课表卡 `SettingsPage.swift:84-106`、`EditPage.swift:144-155,672-685` | 中（入口偏多） |
 | 焦点跨天 | 换天后焦点丢失，从首/末条重开 `App.vue:39-48` | `currentField` 不重置，失效时回退 | 低 |
 | 公告条形态 | 无标签、行首「• 」预留宽度、续行缩进 `layout.ts:120-139` | 有喇叭图标 + 圆点，无续行缩进 `Slide.swift:159-176` | 低 |
-| 单元测试 | 25 个（`schedule.rs` 18 + `store.rs` 7）；AGENTS.md 写的 23 已过期 | 30 个（`DomainTests.swift`），A 版用例逐条有对应 | 低 |
+| 单元测试 | 25 个（`schedule.rs` 18 + `store.rs` 7）；AGENTS.md 写的 23 已过期 | 66 个（`DomainTests.swift` + 撤销栈 / 文字版 / 文件监听），A 版用例逐条有对应 | 低 |
 
-## 四、建议的修复顺序
+## 四、B 版独有的能力（A 版无对应物，不构成差异）
+
+这些只在本机生效，不改数据契约、不影响两端互读：
+
+| 能力 | 位置 | 说明 |
+| --- | --- | --- |
+| 撤销/重做 `⌘Z`/`⇧⌘Z` | `HomeworkKit/History.swift`、`AppState.touch()` | 整份 `AppData` 快照 + 页面日，同输入框连续编辑按 2.5s 时间窗合并；A 版没有撤销 |
+| 放映不熄屏 / 锁定切换 / 指定屏幕与热插拔 | `Presenter.swift`、`PresentWindow.swift` | A 版只有窗口全屏，没有 presentationOptions、也没有多屏选择 |
+| 复制图片 / 复制文字版 / 分享面板 / 拖拽 | `Clipboard.swift`、`AppState.copySlide*` | A 版出图只落盘到 exe 同级目录 |
+| 事件驱动的跨天重算与外部改动重载 | `AppState.observeSystemEvents()`、`HomeworkKit/DataFileWatcher.swift` | A 版无文件监听；B 版也不再轮询（早晨分界线排一次性定时） |
+| Xcode 工程（xcodegen） | `project.yml`、`HomeworkMac.xcodeproj` | 两条构建路径共用 `Sources/`，见 README |
+
+## 五、建议的修复顺序
 
 1. ~~H3 结构性字段严格解码（防静默丢数据）~~ —— 已完成，见第一节
 2. ~~H1 出图语义（自动今天、手动当前选中天，文件名用页面日）~~ —— 已完成，见第二节
 3. ~~H2 节假日优先级（用户数据优先，日历只提示）~~ —— 已完成，见第二节
-4. H4 放映版式回归 A 版规则（字号上限、取消拆列）
-5. H5 放映中 toast
+4. ~~H5 放映中 toast~~ —— 已完成（`PresentWindow` 叠加 `ToastView`，放大 1.6 倍）
+5. H4 放映版式回归 A 版规则（字号上限、取消拆列）
 6. 启动白闪 / 最小窗口尺寸
 
-## 五、尚未验证（需实机）
+## 六、尚未验证（需实机）
 
 1. 未授权或不订阅「中国大陆节假日」日历时 `HolidayService` 的实际分支与缓存内容
    （此时 `holidays.table` 为 nil，`isSchoolDay` 退化为「工作日或已建天」，与 A 版完全一致）。

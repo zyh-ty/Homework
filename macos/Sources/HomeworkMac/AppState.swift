@@ -3,6 +3,7 @@ import Foundation
 import HomeworkKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum Page: String, CaseIterable, Identifiable {
     case edit, week, settings
@@ -86,6 +87,15 @@ final class AppState {
     /// 已忽略的调休提醒（本次运行内）
     var dismissedMakeupReminders: Set<String> = []
 
+    /// 撤销/重做：菜单项标题与可用性（@Observable 只跟踪属性，UndoHistory 内部变化要同步出来）
+    private(set) var canUndo = false
+    private(set) var canRedo = false
+    private(set) var undoActionName = ""
+    private(set) var redoActionName = ""
+
+    private let history = UndoHistory()
+    /// 上一次提交时的状态：touch() 在变更之后调用，用它拿到真正的「变更前」快照
+    private var committed = DataSnapshot(data: AppData(), viewDate: "")
     private var dirty = false
     private var imageDirty = false
     private var lastEdit = Date()
@@ -93,9 +103,11 @@ final class AppState {
     private var lastLaunch: LaunchView?
     private var saveTimer: Timer?
     private var imageTimer: Timer?
-    private var relocateTimer: Timer?
+    private var cutoffTimer: Timer?
     private var holidayTimer: Timer?
     private var toastTimer: Timer?
+    private var watcher: DataFileWatcher?
+    private var externalRetry = 0
     private var exporting = false
 
     private init() {
@@ -115,6 +127,7 @@ final class AppState {
         submitOnly = launch.submitOnly
         draft = loaded.days[launch.date] ?? Day()
         lastLaunch = launch
+        committed = currentSnapshot
         try? Store.ensureDir(dir)
         if !FileManager.default.fileExists(atPath: Store.dataFile(dir).path) {
             saveNow()
@@ -122,6 +135,7 @@ final class AppState {
         if let notice {
             show(notice, symbol: "exclamationmark.triangle.fill")
         }
+        watchDataDir(dir)
         startTimers()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.holidays.refreshIfNeeded()
@@ -207,6 +221,7 @@ final class AppState {
         viewDate = launch.date
         submitOnly = launch.submitOnly
         draft = data.days[launch.date] ?? Day()
+        rebase()
     }
 
     func goToday() {
@@ -227,6 +242,7 @@ final class AppState {
         viewDate = date
         if let newMode { submitOnly = newMode }
         draft = data.days[date] ?? Day()
+        rebase()
     }
 
     func stepDay(_ delta: Int) {
@@ -240,12 +256,24 @@ final class AppState {
 
     // MARK: - 编辑
 
-    func draftChanged() {
+    func draftChanged(_ name: String? = nil) {
         data.days[viewDate] = draft
-        touch()
+        touch(name)
     }
 
-    func touch() {
+    /// 每次变更的收口：先把「变更前」快照记进撤销栈，再落盘
+    func touch(_ name: String? = nil) {
+        if let name {
+            history.record(committed, name: name, token: "cmd:\(name)")
+        } else {
+            history.record(committed, name: actionName, token: tokenKey)
+        }
+        committed = currentSnapshot
+        syncHistoryFlags()
+        markDirty()
+    }
+
+    private func markDirty() {
         dirty = true
         lastEdit = Date()
         imageDirty = true
@@ -254,6 +282,74 @@ final class AppState {
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             self?.saveNow()
         }
+        scheduleAutoImage()
+    }
+
+    // MARK: - 撤销 / 重做
+
+    var currentSnapshot: DataSnapshot {
+        DataSnapshot(data: data, viewDate: viewDate)
+    }
+
+    /// 当前编辑点的名字（键盘导航与鼠标点击都会写 currentField）
+    private var actionName: String {
+        guard let field = currentField else { return "编辑当天内容" }
+        switch field {
+        case .announcement, .newAnnouncement: return "编辑公告"
+        case .homework: return "编辑作业"
+        case .speech: return "编辑演讲提醒"
+        case .schedule: return "编辑课表"
+        }
+    }
+
+    /// 合并键：同一个输入框内的连续编辑算一步，换字段或换天就断开
+    private var tokenKey: String {
+        guard let field = currentField else { return "day@\(viewDate)" }
+        let key: String
+        switch field {
+        case .announcement(let index): key = "announcement#\(index)"
+        case .newAnnouncement: key = "newAnnouncement"
+        case .homework(let row): key = "homework#\(row)"
+        case .speech(let subject): key = "speech#\(subject)"
+        case .schedule(let period): key = "schedule#\(period)"
+        }
+        return "\(key)@\(viewDate)"
+    }
+
+    private func syncHistoryFlags() {
+        canUndo = history.canUndo
+        canRedo = history.canRedo
+        undoActionName = history.undoName ?? ""
+        redoActionName = history.redoName ?? ""
+    }
+
+    func undo() {
+        guard let step = history.undo(current: currentSnapshot) else { return }
+        restore(step.snapshot)
+        show("已撤销「\(step.name)」", symbol: "arrow.uturn.backward")
+    }
+
+    func redo() {
+        guard let step = history.redo(current: currentSnapshot) else { return }
+        restore(step.snapshot)
+        show("已重做「\(step.name)」", symbol: "arrow.uturn.forward")
+    }
+
+    /// 恢复整份数据与页面日；不记历史，否则撤销本身会被撤销
+    private func restore(_ snapshot: DataSnapshot) {
+        data = snapshot.data
+        viewDate = snapshot.viewDate
+        draft = data.days[snapshot.viewDate] ?? Day()
+        committed = currentSnapshot
+        history.breakCoalescing()
+        syncHistoryFlags()
+        markDirty()
+    }
+
+    /// 视图状态变化（切天、重新定位）：刷新基线，不产生历史
+    private func rebase() {
+        committed = currentSnapshot
+        history.breakCoalescing()
     }
 
     func saveNow() {
@@ -263,6 +359,7 @@ final class AppState {
             try Store.save(dataDir, data)
             dirty = false
             saveState = "已保存"
+            watcher?.acknowledge()
         } catch {
             show("保存失败：\(error.localizedDescription)", symbol: "exclamationmark.triangle.fill")
         }
@@ -270,38 +367,56 @@ final class AppState {
 
     func setAnnouncements(_ list: [Announcement]) {
         data.announcements = list
-        touch()
+        touch("编辑公告")
     }
 
     func addAnnouncement(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         data.announcements.append(Announcement(id: data.nextAnnouncementID, text: trimmed))
-        touch()
+        touch("新增公告")
+    }
+
+    func setAnnouncementDone(_ index: Int, _ done: Bool) {
+        guard index < data.announcements.count, data.announcements[index].done != done else { return }
+        data.announcements[index].done = done
+        touch("标记公告完成")
+    }
+
+    func setAnnouncementText(_ index: Int, _ text: String) {
+        guard index < data.announcements.count, data.announcements[index].text != text else { return }
+        data.announcements[index].text = text
+        touch("编辑公告")
+    }
+
+    func removeAnnouncement(at index: Int) {
+        guard index < data.announcements.count else { return }
+        data.announcements.remove(at: index)
+        touch("删除公告")
     }
 
     func setWeeklySchedule(_ rows: [[String]]) {
         data.weeklySchedule = Schedule.normalizeWeekly(rows)
-        touch()
+        touch("修改周课表模版")
     }
 
     func updateSettings(_ settings: HomeworkKit.Settings) {
         var next = settings
         next.dataDir = data.settings.dataDir
         data.settings = next
-        touch()
+        touch("修改设置")
     }
 
     func addDay(_ date: String, copiedFrom: Int?) throws {
         guard Schedule.parse(date) != nil else { throw StoreError("日期格式不正确") }
         guard data.days[date] == nil else { throw StoreError("该日期已存在") }
         data.days[date] = Day(copiedFromWeekday: copiedFrom.flatMap { (0..<7).contains($0) ? $0 : nil })
-        touch()
+        touch("新增天数")
     }
 
     func deleteDay(_ date: String) {
         data.days.removeValue(forKey: date)
-        touch()
+        touch("删除天数")
         if viewDate == date {
             setDate(today, submitOnly: false)
         }
@@ -312,7 +427,7 @@ final class AppState {
         day.copiedFromWeekday = weekday
         data.days[date] = day
         if viewDate == date { draft = day }
-        touch()
+        touch("调整调休来源")
     }
 
     // MARK: - 数据目录
@@ -331,8 +446,13 @@ final class AppState {
             let migrated = try Store.migrate(from: dataDir, to: url)
             dataDir = migrated
             data.settings.dataDir = migrated.path
-            touch()
+            touch("迁移数据目录")
             saveNow()
+            // 文件已经搬过去了，撤销指针没有意义：历史从新目录重新开始
+            history.clear()
+            syncHistoryFlags()
+            rebase()
+            watchDataDir(migrated)
             show("数据目录已迁移到 \(migrated.path)", symbol: "folder.fill")
         } catch {
             show("迁移失败：\(error.localizedDescription)", symbol: "exclamationmark.triangle.fill")
@@ -360,13 +480,16 @@ final class AppState {
         guard !isPresenting else { return }
         saveNow()
         isPresenting = true
+        Presenter.shared.begin()
         openPresentWindow?()
     }
 
     func stopPresenting() {
         guard isPresenting else { return }
         isPresenting = false
+        Presenter.shared.end()
         closePresentWindow?()
+        scheduleAutoImage()
     }
 
     // MARK: - 键盘
@@ -413,15 +536,17 @@ final class AppState {
     // MARK: - 出图
 
     /// 自动出图固定「今天 · 全部」；手动出图导出当前屏幕所见（页面日 + 当前模式）
-    func exportImage(manual: Bool, forToday: Bool = false) {
+    @discardableResult
+    func exportImage(manual: Bool, forToday: Bool = false) -> URL? {
         let vm = forToday
             ? Schedule.viewModel(data, date: today, submitOnly: false, holidays: holidays.table)
             : viewModel
-        exportImage(vm: vm, manual: manual)
+        return exportImage(vm: vm, manual: manual)
     }
 
-    func exportImage(vm: ViewModel, manual: Bool) {
-        guard !exporting else { return }
+    @discardableResult
+    func exportImage(vm: ViewModel, manual: Bool) -> URL? {
+        guard !exporting else { return nil }
         exporting = true
         defer { exporting = false }
         // 文件名用页面日（作业所属的那一天），「仅要交」时画面日期是下一上学日，不作为文件名
@@ -431,7 +556,7 @@ final class AppState {
         }
         guard let png else {
             if manual { show("生成图片失败", symbol: "exclamationmark.triangle.fill") }
-            return
+            return nil
         }
         do {
             let url = try Store.exportImage(png, dir: dataDir, date: date)
@@ -442,34 +567,130 @@ final class AppState {
             if manual {
                 show("已生成 \(url.lastPathComponent)", symbol: "photo.fill")
             }
+            return url
         } catch {
             if manual { show("出图失败：\(error.localizedDescription)", symbol: "exclamationmark.triangle.fill") }
+            return nil
         }
     }
 
-    // MARK: - 定时任务
+    // MARK: - 复制 / 分享 / 拖拽
+
+    /// 当前屏幕所见的 PNG（页面日 + 当前模式）
+    func slidePNG() -> Data? {
+        MainActor.assumeIsolated {
+            SlideRenderer.png(vm: viewModel, showBadge: data.settings.showBadge)
+        }
+    }
+
+    func copySlideImage() {
+        guard let png = slidePNG() else {
+            show("生成图片失败", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        Clipboard.copy(png: png)
+        show("已复制图片，可直接粘到微信", symbol: "doc.on.clipboard")
+    }
+
+    func copySlideText() {
+        Clipboard.copy(text: SlideText.plain(viewModel), rich: SlideRichText.attributed(viewModel))
+        show("已复制文字版作业", symbol: "text.quote")
+    }
+
+    /// 分享：先落盘成 PNG（AirDrop / 信息要的是文件），再弹分享面板
+    func shareSlide() {
+        guard let url = exportImage(vm: viewModel, manual: false) else {
+            show("生成图片失败", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        Sharing.present([url])
+    }
+
+    /// 拖拽源：直接把 PNG 数据交给微信等接收方，不用先找文件
+    func slideItemProvider() -> NSItemProvider {
+        let png = slidePNG()
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.png.identifier,
+            visibility: .all
+        ) { completion in
+            completion(png, nil)
+            return nil
+        }
+        return provider
+    }
+
+    // MARK: - 定时任务与系统事件
 
     private func startTimers() {
-        imageTimer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
-            self?.tickAutoImage()
-        }
-        relocateTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-            self?.tickRelocate()
-        }
         holidayTimer = Timer(timeInterval: 6 * 3600, repeats: true) { [weak self] _ in
             self?.holidays.refresh(silently: true)
         }
         if let holidayTimer { RunLoop.main.add(holidayTimer, forMode: .common) }
-        if let imageTimer { RunLoop.main.add(imageTimer, forMode: .common) }
-        if let relocateTimer { RunLoop.main.add(relocateTimer, forMode: .common) }
+        scheduleAutoImage()
+        scheduleCutoff()
+        observeSystemEvents()
     }
 
-    private func tickAutoImage() {
+    /// 自动出图改成一次性定时：最后一次编辑满 interval 秒才出图，不再每 2 秒轮询
+    private func scheduleAutoImage() {
+        imageTimer?.invalidate()
+        imageTimer = nil
         guard imageDirty, !isPresenting else { return }
         let interval = TimeInterval(max(10, data.settings.imageIntervalSecs))
-        guard Date().timeIntervalSince(lastImage) >= interval else { return }
-        lastImage = Date()
+        let delay = max(0.5, lastImage.addingTimeInterval(interval).timeIntervalSinceNow)
+        let timer = Timer(fire: Date().addingTimeInterval(delay), interval: 0, repeats: false) { [weak self] _ in
+            self?.fireAutoImage()
+        }
+        imageTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func fireAutoImage() {
+        imageTimer = nil
+        guard imageDirty, !isPresenting else { return }
+        let interval = TimeInterval(max(10, data.settings.imageIntervalSecs))
+        guard Date().timeIntervalSince(lastImage) >= interval else {
+            scheduleAutoImage()
+            return
+        }
         exportImage(manual: false, forToday: true)
+    }
+
+    /// 早晨分界线只在这一刻需要重算：排一次性定时，不轮询
+    private func scheduleCutoff() {
+        cutoffTimer?.invalidate()
+        let fire = Schedule.nextCutoff(after: Date(), cutoff: data.settings.morningCutoff)
+        let timer = Timer(fire: fire, interval: 0, repeats: false) { [weak self] _ in
+            self?.refreshFromClock()
+        }
+        cutoffTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// 跨天 / 合盖唤醒 / 改时钟或时区：重算「今天」与自动定位
+    private func observeSystemEvents() {
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [.NSCalendarDayChanged, .NSSystemClockDidChange, .NSSystemTimeZoneDidChange]
+        for name in names {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshFromClock()
+            }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshFromClock()
+        }
+    }
+
+    private func refreshFromClock() {
+        today = Schedule.todayString()
+        tickRelocate()
+        scheduleCutoff()
+        scheduleAutoImage()
     }
 
     private func tickRelocate() {
@@ -488,6 +709,65 @@ final class AppState {
         today = Schedule.todayString()
         apply(launch)
         show(launch.submitOnly ? "已切换到今天早上（仅显示要交）" : "已切换到今天（显示全部）", symbol: "clock.arrow.circlepath")
+    }
+
+    // MARK: - 数据文件外部改动
+
+    private func watchDataDir(_ dir: URL) {
+        watcher?.stop()
+        let watcher = DataFileWatcher(dir: dir) { [weak self] in
+            self?.externalChangeDetected()
+        }
+        self.watcher = watcher
+        watcher.start()
+    }
+
+    private func externalChangeDetected() {
+        // 磁盘内容与内存一致（多半是自己刚保存引出的目录事件）→ 只刷新基线，不打扰
+        if !dirty,
+           let onDisk = try? Store.load(dataDir),
+           let theirs = try? Store.encode(onDisk),
+           let mine = try? Store.encode(data),
+           theirs == mine {
+            externalRetry = 0
+            watcher?.acknowledge()
+            return
+        }
+        guard !dirty else {
+            show("数据文件已在外部改动；本机还有未保存的修改，可用「从磁盘重新载入」载入", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        reloadFromDisk(force: true)
+    }
+
+    /// 重新从磁盘载入（外部改动 / 手动 ⌘R）；force = 放弃本机未保存的修改
+    func reloadFromDisk(force: Bool = false) {
+        if dirty && !force {
+            show("本机还有未保存的修改，未载入外部改动", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        guard let loaded = try? Store.load(dataDir) else {
+            // 共享目录/网盘上可能正好读到写了一半的文件：重试几次，别用「恢复」去覆盖主文件
+            guard externalRetry < 3 else {
+                externalRetry = 0
+                show("外部改动暂时读不出来（可能正在同步），稍后会自动再试", symbol: "exclamationmark.triangle.fill")
+                return
+            }
+            externalRetry += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.externalChangeDetected()
+            }
+            return
+        }
+        externalRetry = 0
+        data = loaded
+        draft = data.days[viewDate] ?? Day()
+        committed = currentSnapshot
+        history.clear()
+        syncHistoryFlags()
+        imageDirty = true
+        scheduleAutoImage()
+        show("已重新载入数据文件", symbol: "arrow.clockwise")
     }
 
     // MARK: - 提示
@@ -537,8 +817,7 @@ final class AppState {
         switch id {
         case .announcement(let idx):
             guard idx < data.announcements.count else { return }
-            data.announcements[idx].done.toggle()
-            touch()
+            setAnnouncementDone(idx, !data.announcements[idx].done)
         case .homework(let row):
             let parts = row.split(separator: "#")
             let subject = String(parts.first ?? "")
@@ -546,7 +825,7 @@ final class AppState {
             let indices = draft.homework.indices.filter { draft.homework[$0].subject == subject }
             guard ordinal < indices.count else { return }
             draft.homework[indices[ordinal]].submitNext.toggle()
-            draftChanged()
+            draftChanged("标记明天交")
         default:
             break
         }

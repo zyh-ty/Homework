@@ -270,9 +270,7 @@ struct AnnouncementCard: View {
             Toggle("", isOn: Binding(
                 get: { item.done },
                 set: { value in
-                    guard index < state.data.announcements.count else { return }
-                    state.data.announcements[index].done = value
-                    state.touch()
+                    state.setAnnouncementDone(index, value)
                 }
             ))
             .labelsHidden()
@@ -281,9 +279,7 @@ struct AnnouncementCard: View {
             TextField("公告内容", text: Binding(
                 get: { index < state.data.announcements.count ? state.data.announcements[index].text : "" },
                 set: { value in
-                    guard index < state.data.announcements.count else { return }
-                    state.data.announcements[index].text = value
-                    state.touch()
+                    state.setAnnouncementText(index, value)
                 }
             ))
             .textFieldStyle(.plain)
@@ -294,9 +290,7 @@ struct AnnouncementCard: View {
             .onSubmit { focus = .newAnnouncement }
 
             Button {
-                guard index < state.data.announcements.count else { return }
-                state.data.announcements.remove(at: index)
-                state.touch()
+                state.removeAnnouncement(at: index)
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(UI.secondaryText.opacity(0.55))
@@ -504,7 +498,7 @@ struct HomeworkCard: View {
 
     private func addEntry(_ subject: String) {
         state.draft.homework.append(HomeworkItem(subject: subject, text: ""))
-        state.draftChanged()
+        state.draftChanged("新增作业条目")
         let id = "\(subject)#\(Self.rows(state: state, subject: subject).count - 1)"
         DispatchQueue.main.async { focus = .homework(id) }
     }
@@ -512,7 +506,7 @@ struct HomeworkCard: View {
     private func remove(_ row: Row) {
         guard let index = row.index, index < state.draft.homework.count else { return }
         state.draft.homework.remove(at: index)
-        state.draftChanged()
+        state.draftChanged("删除作业条目")
     }
 }
 
@@ -595,7 +589,7 @@ struct SpeechCard: View {
                         Button("添加") {
                             guard !picked.isEmpty else { return }
                             materialize(picked)
-                            state.draftChanged()
+                            state.draftChanged("添加演讲学科")
                             picked = ""
                         }
                         .buttonStyle(.bordered)
@@ -631,7 +625,7 @@ struct SpeechCard: View {
     private func addNext() {
         guard let next = ALL_SUBJECTS.first(where: { !subjects.contains($0) }) else { return }
         materialize(next)
-        state.draftChanged()
+        state.draftChanged("添加演讲学科")
         DispatchQueue.main.async { focus = .speech(next) }
     }
 }

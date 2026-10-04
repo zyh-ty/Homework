@@ -208,6 +208,20 @@ public enum Schedule {
         return (c.hour ?? 0) * 60 + (c.minute ?? 0)
     }
 
+    /// 下一次「早晨分界线」时刻：今天还没到就是今天，已经过了就是明天。
+    /// 启动定位只在这一刻需要重算，用它排一次性定时，不必轮询。
+    public static func nextCutoff(after now: Date, cutoff: String) -> Date {
+        let minutes = cutoffMinutes(cutoff)
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        let start = cal.startOfDay(for: now)
+        guard let todayCutoff = cal.date(byAdding: .minute, value: minutes, to: start) else {
+            return now.addingTimeInterval(3600)
+        }
+        if todayCutoff > now { return todayCutoff }
+        return cal.date(byAdding: .day, value: 1, to: todayCutoff) ?? now.addingTimeInterval(3600)
+    }
+
     /// 启动/重定位：早于 cutoff → 上一上学日 + 仅要交；否则今天 + 全部
     public static func launchView(_ data: AppData, today: String, minutes: Int, holidays: HolidayTable? = nil) -> LaunchView {
         if minutes < cutoffMinutes(data.settings.morningCutoff) {

@@ -26,6 +26,18 @@ struct HomeworkMacApp: App {
     @CommandsBuilder
     private var appCommands: some Commands {
         CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .undoRedo) {
+            Button(state.undoActionName.isEmpty ? "撤销" : "撤销 \(state.undoActionName)") {
+                AppState.shared.undo()
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!state.canUndo)
+            Button(state.redoActionName.isEmpty ? "重做" : "重做 \(state.redoActionName)") {
+                AppState.shared.redo()
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!state.canRedo)
+        }
         CommandGroup(replacing: .appInfo) {
             Button("关于 每日作业") {
                 NSApp.orderFrontStandardAboutPanel(options: [
@@ -60,8 +72,14 @@ struct HomeworkMacApp: App {
             Divider()
             Button("生成这一天的作业图片") { AppState.shared.exportImage(manual: true) }
                 .keyboardShortcut("d", modifiers: .command)
+            Button("复制作业图片") { AppState.shared.copySlideImage() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            Button("复制文字版作业") { AppState.shared.copySlideText() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
             Button("立即保存") { AppState.shared.saveNow(); AppState.shared.show("已保存", symbol: "checkmark.circle.fill") }
                 .keyboardShortcut("s", modifiers: .command)
+            Button("从磁盘重新载入") { AppState.shared.reloadFromDisk(force: true) }
+                .keyboardShortcut("r", modifiers: .command)
             Divider()
             Toggle("仅显示要交的作业", isOn: Binding(
                 get: { AppState.shared.submitOnly },

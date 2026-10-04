@@ -12,6 +12,10 @@ struct SettingsPage: View {
     @State private var newCopyFrom = ""
     @State private var pendingDelete: String?
     @State private var loaded = false
+    @State private var keepAwake = Presenter.shared.keepAwake
+    @State private var lockSwitching = Presenter.shared.lockSwitching
+    @State private var presentScreen = Presenter.shared.screenID
+    @State private var screenTick = 0
 
     private let copyOptions: [(String, String)] = [
         ("", "按当天星期"),
@@ -79,6 +83,47 @@ struct SettingsPage: View {
                     .onChange(of: showBadge) { _, new in
                         save(showBadge: new)
                     }
+            }
+
+            Section {
+                Toggle("放映时不熄屏", isOn: $keepAwake)
+                    .onChange(of: keepAwake) { _, new in
+                        Presenter.shared.keepAwake = new
+                        Presenter.shared.refresh()
+                    }
+
+                Toggle("放映时锁定切换（隐藏 Dock 与菜单栏，禁用 ⌘Tab）", isOn: $lockSwitching)
+                    .onChange(of: lockSwitching) { _, new in
+                        Presenter.shared.lockSwitching = new
+                    }
+
+                LabeledContent("放映屏幕") {
+                    HStack(spacing: 8) {
+                        Picker("", selection: $presentScreen) {
+                            Text("自动（放映窗口所在屏幕）").tag(UInt32(0))
+                            ForEach(NSScreen.screens, id: \.displayID) { screen in
+                                Text(screen.localizedName).tag(screen.displayID)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 240)
+                        .id(screenTick)
+                        .onChange(of: presentScreen) { _, new in
+                            Presenter.shared.screenID = new
+                        }
+                        Text("接投影后就固定用它；投影拔掉自动退回")
+                            .hintStyle()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+                    screenTick &+= 1
+                    if Presenter.shared.forgetMissingScreen() { presentScreen = 0 }
+                }
+            } header: {
+                Text("放映")
+            } footer: {
+                Text("这些设置只对本机生效，不写进共享的数据文件。")
+                    .hintStyle()
             }
 
             Section {
@@ -175,7 +220,6 @@ struct SettingsPage: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background(UI.canvas)
         .contentMargins(.top, 18, for: .scrollContent)
         .onAppear(perform: load)
         .confirmationDialog(
@@ -257,6 +301,9 @@ struct SettingsPage: View {
             shortcut([("⌥", "↑"), ("⌥", "↓")], "在条目之间上下切换")
             shortcut([("←", nil), ("→", nil)], "切换上一天 / 下一天")
             shortcut([("F5", nil)], "进入放映 / 退出放映")
+            shortcut([("⌘", "Z")], "撤销；⇧⌘Z 重做")
+            shortcut([("⇧⌘", "C")], "复制作业图片")
+            shortcut([("⌥⌘", "C")], "复制文字版作业")
             shortcut([("⌘", "T")], "回到今天")
             shortcut([("⌘", "D")], "立即生成图片")
             shortcut([("⌘", "K")], "课表总览")

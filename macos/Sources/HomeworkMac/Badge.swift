@@ -21,7 +21,9 @@ enum Badge {
 
     private static func locate() -> URL? {
         if let url = Bundle.main.url(forResource: "badge", withExtension: "png") { return url }
+        #if SWIFT_PACKAGE
         if let url = Bundle.module.url(forResource: "badge", withExtension: "png") { return url }
+        #endif
         return nil
     }
 

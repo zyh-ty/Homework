@@ -37,6 +37,19 @@ trap cleanup EXIT
 git worktree add --quiet --detach "$WORK" "$LOCAL_BRANCH"
 cd "$WORK"
 git checkout "$SRC" -- "${EXPORT_PATHS[@]}"
+
+# xcodegen 生成物必须被忽略：分支自己的 .gitignore 会随手改，
+# 这里保证这几行始终在（且只补缺失的行，不动分支上已有的写法）
+ensure_ignored() {
+    local entry="$1"
+    grep -qxF "$entry" .gitignore 2>/dev/null && return 0
+    printf '%s\n' "$entry" >> .gitignore
+}
+ensure_ignored "# xcodegen 生成物（唯一来源是 macos/project.yml）"
+ensure_ignored "HomeworkMac.xcodeproj/"
+ensure_ignored "Support/"
+ensure_ignored ".swiftpm/"
+
 git add -A
 
 if git diff --cached --quiet; then

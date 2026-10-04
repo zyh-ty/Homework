@@ -56,3 +56,16 @@ private func spec() throws -> String {
     #expect(yml.contains("path: Sources/HomeworkMac"))
     #expect(yml.contains("product: HomeworkKit"))
 }
+
+/// 脚本必须带可执行位：git 只记录 100644/100755，丢了的话
+/// 别人克隆 features/Mac 后会 Permission denied（本地 chmod 挡不住下一次提交）。
+@Test func scriptsKeepExecutableBit() throws {
+    let script = macosRoot().appendingPathComponent("scripts/build-app.sh")
+    let attrs = try FileManager.default.attributesOfItem(atPath: script.path)
+    let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    #expect(mode & 0o111 != 0, "build-app.sh 需要可执行位（chmod +x 并 git update-index --chmod=+x）")
+
+    let dmg = macosRoot().appendingPathComponent("scripts/make-dmg.sh")
+    let dmgMode = (try FileManager.default.attributesOfItem(atPath: dmg.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    #expect(dmgMode & 0o111 != 0, "make-dmg.sh 需要可执行位")
+}

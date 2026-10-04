@@ -4,6 +4,9 @@ import PackageDescription
 let package = Package(
     name: "HomeworkMac",
     platforms: [.macOS(.v26)],
+    products: [
+        .library(name: "HomeworkKit", targets: ["HomeworkKit"]),
+    ],
     targets: [
         .target(name: "HomeworkKit", path: "Sources/HomeworkKit"),
         .executableTarget(

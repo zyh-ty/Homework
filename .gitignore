@@ -20,6 +20,11 @@ xcuserdata/
 *.dSYM
 *.ipa
 
+# xcodegen 生成物（唯一来源是 macos/project.yml，改完跑 xcodegen generate）
+macos/HomeworkMac.xcodeproj/
+macos/Support/
+macos/.swiftpm/
+
 # 杂项
 .DS_Store
 src-tauri/gen/schemas/macOS-schema.json

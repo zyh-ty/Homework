@@ -40,13 +40,30 @@ private func spec() throws -> String {
     #expect(yml.contains("Support/HomeworkMac.entitlements"))
 }
 
-@Test func generatedArtifactsAreNotTracked() throws {
+@Test func generatedArtifactsAreIgnored() throws {
+    // 不假定 .gitignore 的具体写法（主仓库写 macos/ 前缀，导出的 features/Mac 分支用通配），
+    // 只断言效果：xcodegen 生成物确实被忽略规则覆盖。
+    let root = macosRoot()
     let ignore = try String(
-        contentsOf: macosRoot().deletingLastPathComponent().appendingPathComponent(".gitignore"),
+        contentsOf: root.deletingLastPathComponent().appendingPathComponent(".gitignore"),
         encoding: .utf8
     )
-    #expect(ignore.contains("macos/HomeworkMac.xcodeproj/"))
-    #expect(ignore.contains("macos/Support/"))
+    let patterns = ignore
+        .split(separator: "\n")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+
+    func isIgnored(_ relative: String) -> Bool {
+        patterns.contains { pattern in
+            pattern.hasSuffix("/") ? relative.hasPrefix(pattern) || relative.contains("/" + pattern)
+                                     : relative == pattern
+        }
+    }
+
+    #expect(isIgnored("macos/HomeworkMac.xcodeproj/project.pbxproj"),
+            "xcodeproj 是 xcodegen 生成物，必须被忽略")
+    #expect(isIgnored("macos/Support/Info.plist"),
+            "Support/Info.plist 是 xcodegen 生成物，必须被忽略")
 }
 
 @Test func specKeepsUniversalFriendlySettings() throws {

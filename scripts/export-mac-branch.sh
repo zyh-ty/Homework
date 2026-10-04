@@ -19,6 +19,14 @@ EXPORT_PATHS=(macos fixtures LICENSE)
 git rev-parse --verify --quiet "$LOCAL_BRANCH" >/dev/null \
     || { echo "本地分支 $LOCAL_BRANCH 不存在：先按 README 的说明初始化一次"; exit 1; }
 
+# 先把远端分支拉到本地：否则本地落后时，推送会被拒（non-fast-forward）
+if git fetch --quiet "$REMOTE" "$REMOTE_BRANCH:$LOCAL_BRANCH" 2>/dev/null; then
+    :
+elif git fetch --quiet "$REMOTE" "$REMOTE_BRANCH" 2>/dev/null; then
+    # 远端分支不能直接快进本地（历史无关）：以远端为准重建，导出分支的提交历史本就可丢弃
+    git branch -f "$LOCAL_BRANCH" FETCH_HEAD
+fi
+
 WORK="$(mktemp -d)/export"
 cleanup() {
     git worktree remove --force "$WORK" >/dev/null 2>&1 || true
